@@ -38,11 +38,20 @@ export default function Admin() {
   const [fileTitles, setFileTitles] = useState<string[]>([])
   const [uploading, setUploading] = useState(false)
   const [uploadMessage, setUploadMessage] = useState<string | null>(null)
+  const [mediaSearch, setMediaSearch] = useState('')
 
   const [editState, setEditState] = useState<Record<string, { title: string; categories: string; isPublic: boolean }>>({})
 
   const canUpload = Boolean(user && (user.isAdmin || user.whitelisted))
-  const manageableItems = useMemo(() => items.filter((item) => item.canEdit), [items])
+  const manageableItems = useMemo(() => {
+    const query = mediaSearch.trim().toLocaleLowerCase()
+    return items.filter((item) => {
+      if (!item.canEdit) return false
+      if (!query) return true
+      const searchableText = [item.title, item.authorName, ...item.categories].join(' ').toLocaleLowerCase()
+      return searchableText.includes(query)
+    })
+  }, [items, mediaSearch])
 
   const loadData = async () => {
     setLoading(true)
@@ -274,10 +283,25 @@ export default function Admin() {
       <section className="mt-8 rounded-2xl border border-slate-800 bg-slate-900/70 p-4">
         <h2 className="text-lg font-medium text-slate-100">Редактирование моих доступных медиа</h2>
 
+        <label className="mt-4 block">
+          <span className="sr-only">Поиск по медиа</span>
+          <input
+            type="search"
+            value={mediaSearch}
+            onChange={(event) => setMediaSearch(event.target.value)}
+            placeholder="Поиск по названию, автору или категории"
+            className="w-full rounded-xl border border-slate-800 bg-slate-950 px-4 py-3 text-sm text-slate-50 outline-none placeholder:text-slate-500 focus:border-sky-500"
+          />
+        </label>
+
         {loading ? (
           <p className="mt-4 text-sm text-slate-400">Загрузка списка медиа...</p>
         ) : manageableItems.length === 0 ? (
-          <p className="mt-4 text-sm text-slate-400">Нет медиа, доступных для редактирования.</p>
+          <p className="mt-4 text-sm text-slate-400">
+            {mediaSearch.trim()
+              ? 'По вашему запросу ничего не найдено.'
+              : 'Нет медиа, доступных для редактирования.'}
+          </p>
         ) : (
           <div className="mt-4 space-y-4">
             {manageableItems.map((item) => {

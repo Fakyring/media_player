@@ -14,6 +14,7 @@ export default function Gallery() {
   const [items, setItems] = useState<MediaItem[]>([])
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState<string | null>(null)
+  const [searchQuery, setSearchQuery] = useState('')
   const [activeType, setActiveType] = useState<'all' | 'image' | 'video'>('all')
   const [activeCategory, setActiveCategory] = useState<string>('all')
   const [selectedItem, setSelectedItem] = useState<MediaItem | null>(null)
@@ -60,12 +61,15 @@ export default function Gallery() {
   }, [activeType, items])
 
   const filteredItems = useMemo(() => {
+    const query = searchQuery.trim().toLocaleLowerCase()
     return items.filter((item) => {
       const matchesType = activeType === 'all' || item.type === activeType
       const matchesCategory = activeCategory === 'all' || item.categories.includes(activeCategory)
-      return matchesType && matchesCategory
+      const searchableText = [item.title, item.authorName, ...item.categories].join(' ').toLocaleLowerCase()
+      const matchesSearch = !query || searchableText.includes(query)
+      return matchesType && matchesCategory && matchesSearch
     })
-  }, [activeCategory, activeType, items])
+  }, [activeCategory, activeType, items, searchQuery])
 
   return (
     <div className="mx-auto max-w-6xl px-4 py-8 text-slate-50">
@@ -123,6 +127,17 @@ export default function Gallery() {
         ))}
       </div>
 
+      <label className="mt-6 block">
+        <span className="sr-only">Поиск по галерее</span>
+        <input
+          type="search"
+          value={searchQuery}
+          onChange={(event) => setSearchQuery(event.target.value)}
+          placeholder="Поиск по названию, автору или категории"
+          className="w-full rounded-xl border border-slate-800 bg-slate-900 px-4 py-3 text-sm text-slate-50 outline-none placeholder:text-slate-500 focus:border-sky-500"
+        />
+      </label>
+
       {loading ? (
         <p className="mt-8 text-sm text-slate-400">Загрузка медиатеки...</p>
       ) : error ? (
@@ -131,7 +146,7 @@ export default function Gallery() {
         </p>
       ) : filteredItems.length === 0 ? (
         <p className="mt-8 rounded-2xl border border-slate-800 bg-slate-900/60 px-4 py-6 text-sm text-slate-400">
-          В выбранной категории пока нет медиа.
+          По вашему запросу ничего не найдено.
         </p>
       ) : (
         <div className="mt-8">
