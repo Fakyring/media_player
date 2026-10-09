@@ -150,6 +150,17 @@ export async function logoutUser(): Promise<void> {
   }
 }
 
+export async function changePassword(currentPassword: string, newPassword: string): Promise<void> {
+  const res = await apiFetch(`${API_BASE}/auth/change-password`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ currentPassword, newPassword }),
+  })
+  if (!res.ok) {
+    throw await parseError(res, 'Failed to change password')
+  }
+}
+
 export async function updateMedia(
   mediaUuid: string,
   payload: { title: string; categories: string[]; isPublic: boolean },
@@ -177,8 +188,10 @@ export async function deleteMedia(mediaUuid: string): Promise<void> {
   }
 }
 
-export async function fetchAdminUsers(): Promise<AuthUser[]> {
-  const res = await apiFetch(`${API_BASE}/admin/users`)
+export async function fetchAdminUsers(search = ''): Promise<AuthUser[]> {
+  const params = new URLSearchParams()
+  if (search.trim()) params.set('search', search.trim())
+  const res = await apiFetch(`${API_BASE}/admin/users?${params.toString()}`)
   if (!res.ok) {
     throw await parseError(res, 'Failed to fetch users')
   }

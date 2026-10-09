@@ -98,13 +98,42 @@ export default function Admin() {
   }
 
   useEffect(() => {
+    if (!canUpload) {
+      setLoading(false)
+      return
+    }
     void loadData()
-  }, [user?.uuid, user?.isAdmin])
+  }, [user?.uuid, user?.isAdmin, user?.whitelisted])
 
   const handleFileChange = (event: ChangeEvent<HTMLInputElement>) => {
     const selectedFiles = Array.from(event.target.files ?? [])
-    setFiles(selectedFiles)
-    setFileTitles(selectedFiles.map((file) => file.name.replace(/\.[^.]+$/, '')))
+    event.target.value = ''
+    const nextFiles = [...files]
+    const nextTitles = [...fileTitles]
+
+    for (const file of selectedFiles) {
+      const duplicate = nextFiles.some(
+        (current) =>
+          current.name === file.name &&
+          current.size === file.size &&
+          current.lastModified === file.lastModified,
+      )
+      if (duplicate) continue
+      if (nextFiles.length >= 20) {
+        setUploadMessage('Можно выбрать не более 20 файлов за раз.')
+        break
+      }
+      nextFiles.push(file)
+      nextTitles.push(file.name.replace(/\.[^.]+$/, ''))
+    }
+
+    setFiles(nextFiles)
+    setFileTitles(nextTitles)
+  }
+
+  const removeSelectedFile = (index: number) => {
+    setFiles((current) => current.filter((_, fileIndex) => fileIndex !== index))
+    setFileTitles((current) => current.filter((_, titleIndex) => titleIndex !== index))
   }
 
   const addCategory = (value: string) => {
@@ -122,7 +151,7 @@ export default function Admin() {
       return
     }
 
-    if (!canUpload) {
+  if (!canUpload) {
       setUploadMessage('Загрузка разрешена только администраторам и пользователям из white-list.')
       return
     }
@@ -183,6 +212,17 @@ export default function Admin() {
     } catch (error) {
       setPageError(error instanceof Error ? error.message : 'Не удалось удалить медиа')
     }
+  }
+
+  if (!canUpload) {
+    return (
+      <div className="mx-auto max-w-3xl px-4 py-10 text-slate-50">
+        <h1 className="text-2xl font-semibold">Управление медиатекой</h1>
+        <p className="mt-3 rounded-2xl border border-amber-700/40 bg-amber-950/20 p-4 text-sm text-amber-200">
+          Панель доступна только администраторам и пользователям из white-list.
+        </p>
+      </div>
+    )
   }
 
   return (
@@ -357,6 +397,14 @@ export default function Admin() {
                       className="w-1/2 rounded-lg border border-slate-700 bg-slate-950 px-3 py-2 text-slate-50"
                       aria-label={`Название файла ${selectedFile.name}`}
                     />
+                    <button
+                      type="button"
+                      onClick={() => removeSelectedFile(index)}
+                      className="rounded-lg px-2 py-1 text-slate-400 hover:bg-red-950/50 hover:text-red-300"
+                      aria-label={`Убрать файл ${selectedFile.name}`}
+                    >
+                      Убрать
+                    </button>
                   </label>
                 ))}
               </div>

@@ -12,6 +12,7 @@ export function AppLayout({ children }: AppLayoutProps) {
   const navigate = useNavigate()
   const location = useLocation()
   const { user, isAuthenticated, login, register, logout, loading } = useAuth()
+  const canManageMedia = Boolean(user && (user.isAdmin || user.whitelisted))
 
   const [mode, setMode] = useState<'login' | 'register'>('login')
   const [loginValue, setLoginValue] = useState('')
@@ -80,17 +81,32 @@ export function AppLayout({ children }: AppLayoutProps) {
               >
                 Галерея
               </button>
-              <button
-                type="button"
-                onClick={() => navigate('/admin')}
-                className={`rounded-full px-3 py-1.5 ${
-                  isActive('/admin')
-                    ? 'bg-slate-800 text-slate-50'
-                    : 'text-slate-300 hover:bg-slate-900'
-                }`}
-              >
-                Управление
-              </button>
+              {canManageMedia && (
+                <button
+                  type="button"
+                  onClick={() => navigate('/admin')}
+                  className={`rounded-full px-3 py-1.5 ${
+                    isActive('/admin')
+                      ? 'bg-slate-800 text-slate-50'
+                      : 'text-slate-300 hover:bg-slate-900'
+                  }`}
+                >
+                  Управление
+                </button>
+              )}
+              {user && (
+                <button
+                  type="button"
+                  onClick={() => navigate('/profile')}
+                  className={`rounded-full px-3 py-1.5 ${
+                    isActive('/profile')
+                      ? 'bg-slate-800 text-slate-50'
+                      : 'text-slate-300 hover:bg-slate-900'
+                  }`}
+                >
+                  Профиль
+                </button>
+              )}
             </nav>
           </div>
 

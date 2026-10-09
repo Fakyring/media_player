@@ -492,6 +492,25 @@ app.post('/api/auth/logout', requireAuth, async (req, res) => {
   return res.json({ success: true })
 })
 
+app.post('/api/auth/change-password', requireAuth, async (req, res) => {
+  const { currentPassword, newPassword } = req.body || {}
+  if (typeof currentPassword !== 'string' || typeof newPassword !== 'string') {
+    return res.status(400).json({ error: 'Current and new passwords are required' })
+  }
+  if (newPassword.length < 6) {
+    return res.status(400).json({ error: 'New password must contain at least 6 characters' })
+  }
+  if (!verifyPassword(currentPassword, req.currentUser.passwordHash)) {
+    return res.status(401).json({ error: 'Current password is incorrect' })
+  }
+
+  req.currentUser.passwordHash = hashPassword(newPassword)
+  await req.currentUser.save()
+  await Session.deleteMany({ userUuid: req.currentUser.uuid }).exec()
+  clearSessionCookie(req, res)
+  return res.json({ success: true })
+})
+
 app.get('/api/media', async (req, res) => {
   try {
     const data = await buildMediaList(req.currentUser || null)
@@ -643,8 +662,20 @@ app.delete('/api/media/:mediaUuid', requireAuth, async (req, res) => {
 })
 
 app.get('/api/admin/users', requireAuth, requireAdmin, async (req, res) => {
-  const users = await User.find({})
-    .sort({ createdAt: 1 })
+  const query = typeof req.query.search === 'string' ? req.query.search.trim() : ''
+  const escapedQuery = query.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')
+  const userFilter = query
+    ? {
+        $or: [
+          { login: { $regex: escapedQuery, $options: 'i' } },
+          { name: { $regex: escapedQuery, $options: 'i' } },
+        ],
+      }
+    : {}
+
+  const users = await User.find(userFilter)
+    .sort({ whitelisted: 1, createdAt: -1 })
+    .limit(50)
     .select({ uuid: 1, login: 1, name: 1, isAdmin: 1, whitelisted: 1, createdAt: 1, updatedAt: 1, _id: 0 })
     .lean()
     .exec()
