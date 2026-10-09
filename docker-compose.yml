@@ -16,7 +16,7 @@ services:
       - media_internal
 
   mongo:
-    image: mongo:8
+    image: mongo:7.0
     restart: unless-stopped
     command: ["mongod", "--bind_ip_all"]
     volumes:
