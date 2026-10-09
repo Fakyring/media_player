@@ -32,7 +32,9 @@ export default function Admin() {
   const [pageError, setPageError] = useState<string | null>(null)
 
   const [title, setTitle] = useState('')
-  const [categories, setCategories] = useState('')
+  const [selectedCategories, setSelectedCategories] = useState<string[]>([])
+  const [categoryInput, setCategoryInput] = useState('')
+  const [categoriesOpen, setCategoriesOpen] = useState(false)
   const [isPublic, setIsPublic] = useState(true)
   const [files, setFiles] = useState<File[]>([])
   const [fileTitles, setFileTitles] = useState<string[]>([])
@@ -43,6 +45,20 @@ export default function Admin() {
   const [editState, setEditState] = useState<Record<string, { title: string; categories: string; isPublic: boolean }>>({})
 
   const canUpload = Boolean(user && (user.isAdmin || user.whitelisted))
+  const availableCategories = useMemo(
+    () => Array.from(new Set(items.flatMap((item) => item.categories))).sort((a, b) => a.localeCompare(b)),
+    [items],
+  )
+  const matchingCategories = useMemo(() => {
+    const query = categoryInput.trim().toLocaleLowerCase()
+    return availableCategories
+      .filter(
+        (category) =>
+          !selectedCategories.includes(category) &&
+          (!query || category.toLocaleLowerCase().includes(query)),
+      )
+      .slice(0, 8)
+  }, [availableCategories, categoryInput, selectedCategories])
   const manageableItems = useMemo(() => {
     const query = mediaSearch.trim().toLocaleLowerCase()
     return items.filter((item) => {
@@ -91,6 +107,14 @@ export default function Admin() {
     setFileTitles(selectedFiles.map((file) => file.name.replace(/\.[^.]+$/, '')))
   }
 
+  const addCategory = (value: string) => {
+    const category = value.trim().toLocaleLowerCase()
+    if (!category) return
+    setSelectedCategories((current) => (current.includes(category) ? current : [...current, category]))
+    setCategoryInput('')
+    setCategoriesOpen(false)
+  }
+
   const handleUpload = async (event: FormEvent) => {
     event.preventDefault()
     if (files.length === 0) {
@@ -113,13 +137,14 @@ export default function Admin() {
         'titles',
         JSON.stringify(fileTitles.map((fileTitle) => fileTitle.trim() || title.trim())),
       )
-      formData.append('categories', JSON.stringify(stringToCategories(categories)))
+      formData.append('categories', JSON.stringify(selectedCategories))
       formData.append('isPublic', String(isPublic))
 
       await uploadMedia(formData)
 
       setTitle('')
-      setCategories('')
+      setSelectedCategories([])
+      setCategoryInput('')
       setIsPublic(true)
       setFiles([])
       setFileTitles([])
@@ -207,15 +232,89 @@ export default function Admin() {
               />
             </label>
 
-            <label className="space-y-1.5 text-sm">
-              <span className="block text-slate-200">Категории</span>
-              <input
-                value={categories}
-                onChange={(e) => setCategories(e.target.value)}
-                className="w-full rounded-lg border border-slate-700 bg-slate-950 px-3 py-2 text-slate-50"
-                placeholder="Например: anime, music, clips"
-              />
-            </label>
+            <div className="space-y-1.5 text-sm">
+              <label htmlFor="category-input" className="block text-slate-200">
+                Категории
+              </label>
+              <div className="relative">
+                <div className="flex min-h-11 flex-wrap items-center gap-2 rounded-lg border border-slate-700 bg-slate-950 px-3 py-2 focus-within:border-emerald-500">
+                  {selectedCategories.map((category) => (
+                    <span
+                      key={category}
+                      className="inline-flex items-center gap-1 rounded-full bg-emerald-500/15 px-2.5 py-1 text-xs text-emerald-200 ring-1 ring-emerald-500/30"
+                    >
+                      {category}
+                      <button
+                        type="button"
+                        onClick={() =>
+                          setSelectedCategories((current) => current.filter((item) => item !== category))
+                        }
+                        className="rounded-full px-1 text-emerald-200/70 hover:bg-emerald-500/20 hover:text-emerald-100"
+                        aria-label={`Удалить категорию ${category}`}
+                      >
+                        ×
+                      </button>
+                    </span>
+                  ))}
+                  <input
+                    id="category-input"
+                    value={categoryInput}
+                    onFocus={() => setCategoriesOpen(true)}
+                    onChange={(event) => {
+                      setCategoryInput(event.target.value)
+                      setCategoriesOpen(true)
+                    }}
+                    onKeyDown={(event) => {
+                      if (event.key === 'Enter' || event.key === ',') {
+                        event.preventDefault()
+                        addCategory(categoryInput)
+                      } else if (event.key === 'Backspace' && !categoryInput && selectedCategories.length) {
+                        setSelectedCategories((current) => current.slice(0, -1))
+                      } else if (event.key === 'Escape') {
+                        setCategoriesOpen(false)
+                      }
+                    }}
+                    onBlur={() => window.setTimeout(() => setCategoriesOpen(false), 120)}
+                    className="min-w-[140px] flex-1 bg-transparent py-1 text-slate-50 outline-none placeholder:text-slate-500"
+                    placeholder={selectedCategories.length ? 'Добавить категорию...' : 'Введите или выберите категорию'}
+                    autoComplete="off"
+                  />
+                </div>
+
+                {categoriesOpen && (matchingCategories.length > 0 || categoryInput.trim()) && (
+                  <div className="absolute z-20 mt-2 max-h-64 w-full overflow-y-auto rounded-xl border border-slate-700 bg-slate-900 p-1.5 shadow-xl shadow-black/40">
+                    {matchingCategories.map((category) => (
+                      <button
+                        key={category}
+                        type="button"
+                        onMouseDown={(event) => event.preventDefault()}
+                        onClick={() => addCategory(category)}
+                        className="flex w-full items-center justify-between rounded-lg px-3 py-2 text-left text-sm text-slate-200 hover:bg-slate-800"
+                      >
+                        <span>{category}</span>
+                        <span className="text-xs text-slate-500">Существующая категория</span>
+                      </button>
+                    ))}
+                    {categoryInput.trim() &&
+                      !availableCategories.some(
+                        (category) => category.toLocaleLowerCase() === categoryInput.trim().toLocaleLowerCase(),
+                      ) &&
+                      !selectedCategories.includes(categoryInput.trim().toLocaleLowerCase()) && (
+                        <button
+                          type="button"
+                          onMouseDown={(event) => event.preventDefault()}
+                          onClick={() => addCategory(categoryInput)}
+                          className="flex w-full items-center justify-between rounded-lg px-3 py-2 text-left text-sm text-emerald-200 hover:bg-slate-800"
+                        >
+                          <span>Создать «{categoryInput.trim()}»</span>
+                          <span className="text-xs text-emerald-500">Новая</span>
+                        </button>
+                      )}
+                  </div>
+                )}
+              </div>
+              <p className="text-xs text-slate-500">Введите новую категорию или выберите подходящую из списка. Enter добавляет введённое значение.</p>
+            </div>
           </div>
 
           <label className="flex items-center gap-3 text-sm text-slate-200">
