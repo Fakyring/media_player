@@ -95,7 +95,12 @@ export function MediaCard({ item, favorite, onToggleFavorite, onOpen }: MediaCar
           </button>
         </div>
         <p className="text-xs text-slate-400">Автор: {item.authorName}</p>
-        <p className="text-xs text-slate-500">ID: {item.uuid}</p>
+        <p className="break-all text-xs text-slate-500">ID: {item.uuid}</p>
+        <p className="text-[10px] text-slate-500">
+          Исходник изменён: {item.fileModifiedAt ? new Date(item.fileModifiedAt).toLocaleDateString() : 'неизвестно'}
+          {' · '}
+          Загружено: {item.createdAt ? new Date(item.createdAt).toLocaleDateString() : 'неизвестно'}
+        </p>
       </div>
     </article>
   )

@@ -9,21 +9,7 @@ import {
 } from '../lib/api'
 import type { MediaItem } from '../types/media'
 import { useAuth } from '../context/AuthContext'
-
-function categoriesToString(categories: string[]): string {
-  return categories.join(', ')
-}
-
-function stringToCategories(value: string): string[] {
-  return Array.from(
-    new Set(
-      value
-        .split(',')
-        .map((item) => item.trim().toLowerCase())
-        .filter(Boolean),
-    ),
-  )
-}
+import { CategoryPicker } from '../components/media/CategoryPicker'
 
 export default function Admin() {
   const { user } = useAuth()
@@ -31,40 +17,28 @@ export default function Admin() {
   const [loading, setLoading] = useState(true)
   const [pageError, setPageError] = useState<string | null>(null)
 
-  const [title, setTitle] = useState('')
-  const [selectedCategories, setSelectedCategories] = useState<string[]>([])
-  const [categoryInput, setCategoryInput] = useState('')
-  const [categoriesOpen, setCategoriesOpen] = useState(false)
   const [isPublic, setIsPublic] = useState(true)
   const [files, setFiles] = useState<File[]>([])
   const [fileTitles, setFileTitles] = useState<string[]>([])
+  const [fileCategories, setFileCategories] = useState<string[][]>([])
+  const [fileModifiedDates, setFileModifiedDates] = useState<number[]>([])
   const [uploading, setUploading] = useState(false)
   const [uploadMessage, setUploadMessage] = useState<string | null>(null)
   const [mediaSearch, setMediaSearch] = useState('')
 
-  const [editState, setEditState] = useState<Record<string, { title: string; categories: string; isPublic: boolean }>>({})
+  const [editState, setEditState] = useState<Record<string, { title: string; categories: string[]; isPublic: boolean }>>({})
 
   const canUpload = Boolean(user && (user.isAdmin || user.whitelisted))
   const availableCategories = useMemo(
     () => Array.from(new Set(items.flatMap((item) => item.categories))).sort((a, b) => a.localeCompare(b)),
     [items],
   )
-  const matchingCategories = useMemo(() => {
-    const query = categoryInput.trim().toLocaleLowerCase()
-    return availableCategories
-      .filter(
-        (category) =>
-          !selectedCategories.includes(category) &&
-          (!query || category.toLocaleLowerCase().includes(query)),
-      )
-      .slice(0, 8)
-  }, [availableCategories, categoryInput, selectedCategories])
   const manageableItems = useMemo(() => {
     const query = mediaSearch.trim().toLocaleLowerCase()
     return items.filter((item) => {
       if (!item.canEdit) return false
       if (!query) return true
-      const searchableText = [item.title, item.authorName, ...item.categories].join(' ').toLocaleLowerCase()
+      const searchableText = [item.title, item.uuid, item.authorName, ...item.categories].join(' ').toLocaleLowerCase()
       return searchableText.includes(query)
     })
   }, [items, mediaSearch])
@@ -83,7 +57,7 @@ export default function Admin() {
             item.uuid,
             {
               title: item.title,
-              categories: categoriesToString(item.categories),
+              categories: item.categories,
               isPublic: item.isPublic,
             },
           ]),
@@ -110,6 +84,7 @@ export default function Admin() {
     event.target.value = ''
     const nextFiles = [...files]
     const nextTitles = [...fileTitles]
+    const addedFiles: File[] = []
 
     for (const file of selectedFiles) {
       const duplicate = nextFiles.some(
@@ -124,30 +99,32 @@ export default function Admin() {
         break
       }
       nextFiles.push(file)
-      nextTitles.push(file.name.replace(/\.[^.]+$/, ''))
+      nextTitles.push('')
+      addedFiles.push(file)
     }
 
     setFiles(nextFiles)
     setFileTitles(nextTitles)
+    setFileCategories((current) => [...current, ...addedFiles.map(() => [])])
+    setFileModifiedDates((current) => [...current, ...addedFiles.map((file) => file.lastModified)])
   }
 
   const removeSelectedFile = (index: number) => {
     setFiles((current) => current.filter((_, fileIndex) => fileIndex !== index))
     setFileTitles((current) => current.filter((_, titleIndex) => titleIndex !== index))
-  }
-
-  const addCategory = (value: string) => {
-    const category = value.trim().toLocaleLowerCase()
-    if (!category) return
-    setSelectedCategories((current) => (current.includes(category) ? current : [...current, category]))
-    setCategoryInput('')
-    setCategoriesOpen(false)
+    setFileCategories((current) => current.filter((_, categoryIndex) => categoryIndex !== index))
+    setFileModifiedDates((current) => current.filter((_, dateIndex) => dateIndex !== index))
   }
 
   const handleUpload = async (event: FormEvent) => {
     event.preventDefault()
     if (files.length === 0) {
       setUploadMessage('Выберите файл для загрузки.')
+      return
+    }
+
+    if (fileTitles.some((fileTitle) => !fileTitle.trim())) {
+      setUploadMessage('Укажите название для каждого файла.')
       return
     }
 
@@ -164,19 +141,19 @@ export default function Admin() {
       files.forEach((file) => formData.append('files', file))
       formData.append(
         'titles',
-        JSON.stringify(fileTitles.map((fileTitle) => fileTitle.trim() || title.trim())),
+        JSON.stringify(fileTitles.map((fileTitle) => fileTitle.trim())),
       )
-      formData.append('categories', JSON.stringify(selectedCategories))
+      formData.append('categoriesByFile', JSON.stringify(fileCategories))
+      formData.append('fileModifiedDates', JSON.stringify(fileModifiedDates))
       formData.append('isPublic', String(isPublic))
 
       await uploadMedia(formData)
 
-      setTitle('')
-      setSelectedCategories([])
-      setCategoryInput('')
       setIsPublic(true)
       setFiles([])
       setFileTitles([])
+      setFileCategories([])
+      setFileModifiedDates([])
       setUploadMessage(`Успешно добавлено файлов: ${files.length}.`)
       await loadData()
     } catch (error) {
@@ -193,7 +170,7 @@ export default function Admin() {
     try {
       await updateMedia(item.uuid, {
         title: state.title.trim(),
-        categories: stringToCategories(state.categories),
+        categories: state.categories,
         isPublic: state.isPublic,
       })
       await loadData()
@@ -261,102 +238,6 @@ export default function Admin() {
       <section className="mt-8 rounded-2xl border border-slate-800 bg-slate-900/70 p-4">
         <h2 className="text-lg font-medium text-slate-100">Добавление медиа</h2>
         <form onSubmit={handleUpload} className="mt-4 space-y-4">
-          <div className="grid gap-4 md:grid-cols-2">
-            <label className="space-y-1.5 text-sm">
-              <span className="block text-slate-200">Название (необязательно)</span>
-              <input
-                value={title}
-                onChange={(e) => setTitle(e.target.value)}
-                className="w-full rounded-lg border border-slate-700 bg-slate-950 px-3 py-2 text-slate-50"
-                placeholder="По умолчанию будет использовано имя файла"
-              />
-            </label>
-
-            <div className="space-y-1.5 text-sm">
-              <label htmlFor="category-input" className="block text-slate-200">
-                Категории
-              </label>
-              <div className="relative">
-                <div className="flex min-h-11 flex-wrap items-center gap-2 rounded-lg border border-slate-700 bg-slate-950 px-3 py-2 focus-within:border-emerald-500">
-                  {selectedCategories.map((category) => (
-                    <span
-                      key={category}
-                      className="inline-flex items-center gap-1 rounded-full bg-emerald-500/15 px-2.5 py-1 text-xs text-emerald-200 ring-1 ring-emerald-500/30"
-                    >
-                      {category}
-                      <button
-                        type="button"
-                        onClick={() =>
-                          setSelectedCategories((current) => current.filter((item) => item !== category))
-                        }
-                        className="rounded-full px-1 text-emerald-200/70 hover:bg-emerald-500/20 hover:text-emerald-100"
-                        aria-label={`Удалить категорию ${category}`}
-                      >
-                        ×
-                      </button>
-                    </span>
-                  ))}
-                  <input
-                    id="category-input"
-                    value={categoryInput}
-                    onFocus={() => setCategoriesOpen(true)}
-                    onChange={(event) => {
-                      setCategoryInput(event.target.value)
-                      setCategoriesOpen(true)
-                    }}
-                    onKeyDown={(event) => {
-                      if (event.key === 'Enter' || event.key === ',') {
-                        event.preventDefault()
-                        addCategory(categoryInput)
-                      } else if (event.key === 'Backspace' && !categoryInput && selectedCategories.length) {
-                        setSelectedCategories((current) => current.slice(0, -1))
-                      } else if (event.key === 'Escape') {
-                        setCategoriesOpen(false)
-                      }
-                    }}
-                    onBlur={() => window.setTimeout(() => setCategoriesOpen(false), 120)}
-                    className="min-w-[140px] flex-1 bg-transparent py-1 text-slate-50 outline-none placeholder:text-slate-500"
-                    placeholder={selectedCategories.length ? 'Добавить категорию...' : 'Введите или выберите категорию'}
-                    autoComplete="off"
-                  />
-                </div>
-
-                {categoriesOpen && (matchingCategories.length > 0 || categoryInput.trim()) && (
-                  <div className="absolute z-20 mt-2 max-h-64 w-full overflow-y-auto rounded-xl border border-slate-700 bg-slate-900 p-1.5 shadow-xl shadow-black/40">
-                    {matchingCategories.map((category) => (
-                      <button
-                        key={category}
-                        type="button"
-                        onMouseDown={(event) => event.preventDefault()}
-                        onClick={() => addCategory(category)}
-                        className="flex w-full items-center justify-between rounded-lg px-3 py-2 text-left text-sm text-slate-200 hover:bg-slate-800"
-                      >
-                        <span>{category}</span>
-                        <span className="text-xs text-slate-500">Существующая категория</span>
-                      </button>
-                    ))}
-                    {categoryInput.trim() &&
-                      !availableCategories.some(
-                        (category) => category.toLocaleLowerCase() === categoryInput.trim().toLocaleLowerCase(),
-                      ) &&
-                      !selectedCategories.includes(categoryInput.trim().toLocaleLowerCase()) && (
-                        <button
-                          type="button"
-                          onMouseDown={(event) => event.preventDefault()}
-                          onClick={() => addCategory(categoryInput)}
-                          className="flex w-full items-center justify-between rounded-lg px-3 py-2 text-left text-sm text-emerald-200 hover:bg-slate-800"
-                        >
-                          <span>Создать «{categoryInput.trim()}»</span>
-                          <span className="text-xs text-emerald-500">Новая</span>
-                        </button>
-                      )}
-                  </div>
-                )}
-              </div>
-              <p className="text-xs text-slate-500">Введите новую категорию или выберите подходящую из списка. Enter добавляет введённое значение.</p>
-            </div>
-          </div>
-
           <label className="flex items-center gap-3 text-sm text-slate-200">
             <input
               type="checkbox"
@@ -381,31 +262,53 @@ export default function Admin() {
             />
             {files.length > 0 && (
               <div className="mt-3 space-y-2">
-                <p className="text-xs text-slate-400">Файлов выбрано: {files.length}. Можно изменить название каждого:</p>
+                <p className="text-xs text-slate-400">Файлов выбрано: {files.length}. Укажите название и категории каждого:</p>
                 {files.map((selectedFile, index) => (
-                  <label key={`${selectedFile.name}-${index}`} className="flex items-center gap-3 text-xs text-slate-300">
-                    <span className="min-w-0 flex-1 truncate">{selectedFile.name}</span>
-                    <input
-                      value={fileTitles[index] ?? ''}
-                      onChange={(event) =>
-                        setFileTitles((current) =>
-                          current.map((value, titleIndex) =>
-                            titleIndex === index ? event.target.value : value,
-                          ),
-                        )
-                      }
-                      className="w-1/2 rounded-lg border border-slate-700 bg-slate-950 px-3 py-2 text-slate-50"
-                      aria-label={`Название файла ${selectedFile.name}`}
-                    />
-                    <button
-                      type="button"
-                      onClick={() => removeSelectedFile(index)}
-                      className="rounded-lg px-2 py-1 text-slate-400 hover:bg-red-950/50 hover:text-red-300"
-                      aria-label={`Убрать файл ${selectedFile.name}`}
-                    >
-                      Убрать
-                    </button>
-                  </label>
+                  <div key={`${selectedFile.name}-${index}`} className="rounded-xl border border-slate-800 bg-slate-950/70 p-3">
+                    <div className="mb-3 flex items-center gap-3">
+                      <span className="min-w-0 flex-1 truncate text-xs text-slate-300">{selectedFile.name}</span>
+                      <button
+                        type="button"
+                        onClick={() => removeSelectedFile(index)}
+                        className="rounded-lg px-2 py-1 text-xs text-slate-400 hover:bg-red-950/50 hover:text-red-300"
+                        aria-label={`Убрать файл ${selectedFile.name}`}
+                      >
+                        Убрать
+                      </button>
+                    </div>
+                    <div className="grid gap-3 sm:grid-cols-2">
+                      <input
+                        required
+                        value={fileTitles[index] ?? ''}
+                        onChange={(event) =>
+                          setFileTitles((current) =>
+                            current.map((value, titleIndex) =>
+                              titleIndex === index ? event.target.value : value,
+                            ),
+                          )
+                        }
+                        className="rounded-lg border border-slate-700 bg-slate-900 px-3 py-2 text-sm text-slate-50"
+                        placeholder="Название медиа"
+                        aria-label={`Название файла ${selectedFile.name}`}
+                      />
+                      <CategoryPicker
+                        id={`upload-categories-${index}`}
+                        value={fileCategories[index] ?? []}
+                        options={availableCategories}
+                        onChange={(value) =>
+                          setFileCategories((current) =>
+                            current.map((categories, categoryIndex) =>
+                              categoryIndex === index ? value : categories,
+                            ),
+                          )
+                        }
+                        placeholder="Категории этого медиа"
+                      />
+                    </div>
+                    <p className="mt-2 text-xs text-slate-500">
+                      Исходный файл изменён: {fileModifiedDates[index] ? new Date(fileModifiedDates[index]).toLocaleString() : 'дата неизвестна'}
+                    </p>
+                  </div>
                 ))}
               </div>
             )}
@@ -436,7 +339,7 @@ export default function Admin() {
             type="search"
             value={mediaSearch}
             onChange={(event) => setMediaSearch(event.target.value)}
-            placeholder="Поиск по названию, автору или категории"
+            placeholder="Поиск по названию, ID, автору или категории"
             className="w-full rounded-xl border border-slate-800 bg-slate-950 px-4 py-3 text-sm text-slate-50 outline-none placeholder:text-slate-500 focus:border-sky-500"
           />
         </label>
@@ -463,6 +366,11 @@ export default function Admin() {
                       <p className="text-xs text-slate-400">
                         Автор: {item.authorName} • Тип: {item.type} • Расширение: .{item.extension}
                       </p>
+                      <p className="mt-1 text-xs text-slate-500">
+                        Исходный файл изменён: {item.fileModifiedAt ? new Date(item.fileModifiedAt).toLocaleString() : 'дата неизвестна'}
+                        {' • '}
+                        Загружено: {item.createdAt ? new Date(item.createdAt).toLocaleString() : 'дата неизвестна'}
+                      </p>
                     </div>
                     <button
                       type="button"
@@ -475,6 +383,7 @@ export default function Admin() {
 
                   <div className="grid gap-4 md:grid-cols-2">
                     <input
+                      required
                       value={state.title}
                       onChange={(e) =>
                         setEditState((prev) => ({
@@ -484,15 +393,17 @@ export default function Admin() {
                       }
                       className="rounded-lg border border-slate-700 bg-slate-900 px-3 py-2 text-sm text-slate-50"
                     />
-                    <input
+                    <CategoryPicker
+                      id={`edit-categories-${item.uuid}`}
                       value={state.categories}
-                      onChange={(e) =>
+                      options={availableCategories}
+                      onChange={(categories) =>
                         setEditState((prev) => ({
                           ...prev,
-                          [item.uuid]: { ...prev[item.uuid], categories: e.target.value },
+                          [item.uuid]: { ...prev[item.uuid], categories },
                         }))
                       }
-                      className="rounded-lg border border-slate-700 bg-slate-900 px-3 py-2 text-sm text-slate-50"
+                      placeholder="Добавить или выбрать категории"
                     />
                   </div>
 

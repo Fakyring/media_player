@@ -78,9 +78,22 @@ export function AppLayout({ children }: AppLayoutProps) {
                     ? 'bg-slate-800 text-slate-50'
                     : 'text-slate-300 hover:bg-slate-900'
                 }`}
-              >
-                Галерея
+                >
+                Медиа
               </button>
+              {user && (
+                <button
+                  type="button"
+                  onClick={() => navigate('/favorites')}
+                  className={`rounded-full px-3 py-1.5 ${
+                    isActive('/favorites')
+                      ? 'bg-slate-800 text-slate-50'
+                      : 'text-slate-300 hover:bg-slate-900'
+                  }`}
+                >
+                  Избранное
+                </button>
+              )}
               {canManageMedia && (
                 <button
                   type="button"

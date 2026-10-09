@@ -9,13 +9,13 @@ import { useFavorites } from '../context/FavoritesContext'
 import { useAuth } from '../context/AuthContext'
 
 export default function Gallery() {
-  const { isFavorite, toggleFavorite } = useFavorites()
+  const { favorites, isFavorite, toggleFavorite } = useFavorites()
   const { user } = useAuth()
   const [items, setItems] = useState<MediaItem[]>([])
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState<string | null>(null)
   const [searchQuery, setSearchQuery] = useState('')
-  const [activeType, setActiveType] = useState<'all' | 'image' | 'video'>('all')
+  const [activeType, setActiveType] = useState<'all' | 'image' | 'video' | 'favorites'>('all')
   const [activeCategory, setActiveCategory] = useState<string>('all')
   const [selectedItem, setSelectedItem] = useState<MediaItem | null>(null)
 
@@ -52,24 +52,28 @@ export default function Gallery() {
   const categories = useMemo(() => {
     const set = new Set<string>()
     for (const item of items) {
-      if (activeType !== 'all' && item.type !== activeType) continue
+      if (activeType === 'image' || activeType === 'video') {
+        if (item.type !== activeType) continue
+      }
+      if (activeType === 'favorites' && !favorites.includes(item.id)) continue
       for (const category of item.categories) {
         set.add(category)
       }
     }
     return ['all', ...Array.from(set).sort((a, b) => a.localeCompare(b))]
-  }, [activeType, items])
+  }, [activeType, favorites, items])
 
   const filteredItems = useMemo(() => {
     const query = searchQuery.trim().toLocaleLowerCase()
     return items.filter((item) => {
-      const matchesType = activeType === 'all' || item.type === activeType
+      const matchesType = activeType === 'all' || activeType === 'favorites' || item.type === activeType
       const matchesCategory = activeCategory === 'all' || item.categories.includes(activeCategory)
-      const searchableText = [item.title, item.authorName, ...item.categories].join(' ').toLocaleLowerCase()
+      const searchableText = [item.title, item.uuid, item.authorName, ...item.categories].join(' ').toLocaleLowerCase()
       const matchesSearch = !query || searchableText.includes(query)
-      return matchesType && matchesCategory && matchesSearch
+      const matchesFavorites = activeType !== 'favorites' || favorites.includes(item.id)
+      return matchesType && matchesCategory && matchesSearch && matchesFavorites
     })
-  }, [activeCategory, activeType, items, searchQuery])
+  }, [activeCategory, activeType, favorites, items, searchQuery])
 
   return (
     <div className="mx-auto max-w-6xl px-4 py-8 text-slate-50">
@@ -77,8 +81,8 @@ export default function Gallery() {
         <div>
           <h1 className="text-2xl font-semibold tracking-tight sm:text-3xl">Галерея медиа</h1>
           <p className="mt-2 max-w-3xl text-sm text-slate-300">
-            Неавторизованные пользователи видят только публичные материалы. Автор и администратор
-            дополнительно видят свои непубличные записи.
+            Неавторизованные пользователи видят только публичные материалы. Администраторы,
+            участники white-list и авторы также видят приватные видео.
           </p>
         </div>
         <div className="text-xs text-slate-400">
@@ -108,6 +112,22 @@ export default function Gallery() {
             {label}
           </button>
         ))}
+        {user && (
+          <button
+            type="button"
+            onClick={() => {
+              setActiveType('favorites')
+              setActiveCategory('all')
+            }}
+            className={`rounded-full px-4 py-2 text-sm font-medium ${
+              activeType === 'favorites'
+                ? 'bg-sky-500 text-slate-950'
+                : 'bg-slate-900 text-slate-200 hover:bg-slate-800'
+            }`}
+          >
+            Избранное
+          </button>
+        )}
       </div>
 
       <div className="mt-6 flex flex-wrap gap-2">
@@ -133,7 +153,7 @@ export default function Gallery() {
           type="search"
           value={searchQuery}
           onChange={(event) => setSearchQuery(event.target.value)}
-          placeholder="Поиск по названию, автору или категории"
+          placeholder="Поиск по названию, ID, автору или категории"
           className="w-full rounded-xl border border-slate-800 bg-slate-900 px-4 py-3 text-sm text-slate-50 outline-none placeholder:text-slate-500 focus:border-sky-500"
         />
       </label>
@@ -146,7 +166,9 @@ export default function Gallery() {
         </p>
       ) : filteredItems.length === 0 ? (
         <p className="mt-8 rounded-2xl border border-slate-800 bg-slate-900/60 px-4 py-6 text-sm text-slate-400">
-          По вашему запросу ничего не найдено.
+          {activeType === 'favorites' && favorites.length === 0
+            ? 'В избранном пока нет медиа.'
+            : 'По вашему запросу ничего не найдено.'}
         </p>
       ) : (
         <div className="mt-8">

@@ -13,6 +13,7 @@ export interface MediaItem {
   authorName: string
   canEdit: boolean
   createdAt?: string
+  fileModifiedAt?: string | null
   updatedAt?: string
 }
 

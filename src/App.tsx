@@ -5,6 +5,7 @@ import HomePage from './pages/Home'
 import GalleryPage from './pages/Gallery'
 import AdminPage from './pages/Admin'
 import ProfilePage from './pages/Profile'
+import FavoritesPage from './pages/Favorites'
 import { ThemeProvider } from './context/ThemeContext'
 import { AuthProvider } from './context/AuthContext'
 import { FavoritesProvider } from './context/FavoritesContext'
@@ -25,6 +26,7 @@ export default function App() {
                 <Route path="/gallery" element={<GalleryPage />} />
                 <Route path="/admin" element={<AdminPage />} />
                 <Route path="/profile" element={<ProfilePage />} />
+                <Route path="/favorites" element={<FavoritesPage />} />
               </Routes>
             </AppLayout>
           </HashRouter>

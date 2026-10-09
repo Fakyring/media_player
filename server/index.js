@@ -57,6 +57,7 @@ const mediaSchema = new mongoose.Schema(
     categories: { type: [String], default: [] },
     isPublic: { type: Boolean, default: true, index: true },
     authorUuid: { type: String, required: true, index: true },
+    fileModifiedAt: { type: Date, default: null },
   },
   {
     timestamps: true,
@@ -264,6 +265,7 @@ function canViewMedia(mediaDoc, viewer) {
   if (mediaDoc.isPublic) return true
   if (!viewer) return false
   if (viewer.isAdmin) return true
+  if (mediaDoc.type === 'video' && viewer.whitelisted) return true
   return viewer.uuid === mediaDoc.authorUuid
 }
 
@@ -359,7 +361,7 @@ async function buildMediaList(viewer) {
   const authorMap = new Map(authors.map((author) => [author.uuid, author.name]))
   const categoryMap = new Map()
 
-  const items = visibleDocs.map((item) => {
+  const items = await Promise.all(visibleDocs.map(async (item) => {
     const categories = Array.isArray(item.categories) ? item.categories : []
     if (categories.length === 0) {
       const fallbackId = 'uncategorized'
@@ -370,6 +372,14 @@ async function buildMediaList(viewer) {
       const existing = categoryMap.get(category) || { id: category, name: category, count: 0 }
       existing.count += 1
       categoryMap.set(category, existing)
+    }
+
+    let fileModifiedAt = item.fileModifiedAt || null
+    try {
+      const fileStats = await fsp.stat(getMediaFilePath(item))
+      fileModifiedAt = fileModifiedAt || fileStats.mtime
+    } catch {
+      // Missing files are reported separately by the media file route.
     }
 
     return {
@@ -386,9 +396,10 @@ async function buildMediaList(viewer) {
       authorName: authorMap.get(item.authorUuid) || 'Unknown',
       canEdit: canEditMedia(item, viewer),
       createdAt: item.createdAt,
+      fileModifiedAt,
       updatedAt: item.updatedAt,
     }
-  })
+  }))
 
   return {
     categories: Array.from(categoryMap.values()).sort((a, b) => a.name.localeCompare(b.name)),
@@ -569,16 +580,26 @@ app.post('/api/media', requireUploaderAccess, upload.array('files', 20), async (
 
   try {
     let titles = []
+    let categoriesByFile = []
+    let fileModifiedDates = []
     try {
       titles = JSON.parse(req.body?.titles || '[]')
+      categoriesByFile = JSON.parse(req.body?.categoriesByFile || '[]')
+      fileModifiedDates = JSON.parse(req.body?.fileModifiedDates || '[]')
     } catch {
-      throw new Error('Invalid titles metadata')
+      throw new Error('Invalid media metadata')
     }
-    if (!Array.isArray(titles)) {
-      throw new Error('Titles must be an array')
+    if (!Array.isArray(titles) || !Array.isArray(categoriesByFile) || !Array.isArray(fileModifiedDates)) {
+      throw new Error('Titles, categories and file dates must be arrays')
+    }
+    if (
+      titles.length !== uploadedFiles.length ||
+      categoriesByFile.length !== uploadedFiles.length ||
+      fileModifiedDates.length !== uploadedFiles.length
+    ) {
+      throw new Error('Metadata must be provided for every selected file')
     }
 
-    const categories = parseCategories(req.body?.categories)
     const isPublic = parseBoolean(req.body?.isPublic, false)
     const records = uploadedFiles.map((file, index) => {
       const type = detectMediaType(file)
@@ -587,15 +608,20 @@ app.post('/api/media', requireUploaderAccess, upload.array('files', 20), async (
         throw new Error(`Unsupported media type: ${file.originalname}`)
       }
 
-      const title = normalizeTitle(titles[index]) || path.parse(file.originalname).name.slice(0, 200)
+      const title = normalizeTitle(titles[index])
+      if (!title) {
+        throw new Error(`Title is required for ${file.originalname}`)
+      }
+      const fileDate = Number(fileModifiedDates[index])
       return {
         uuid: file.generatedMediaUuid,
         title,
         type,
         extension,
-        categories,
+        categories: parseCategories(categoriesByFile[index]),
         isPublic,
         authorUuid: req.currentUser.uuid,
+        fileModifiedAt: Number.isFinite(fileDate) && fileDate > 0 ? new Date(fileDate) : null,
       }
     })
 
