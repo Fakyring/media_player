@@ -1,4 +1,4 @@
-/** @file React context for managing light/dark theme with persistence and document class sync. */
+/** @file React context that keeps the application in dark mode. */
 
 import {
   createContext,
@@ -9,10 +9,7 @@ import {
   type ReactNode,
 } from 'react'
 
-/**
- * Application theme variants.
- */
-type Theme = 'light' | 'dark'
+type Theme = 'dark'
 
 /**
  * Shape of the theme context value.
@@ -20,9 +17,9 @@ type Theme = 'light' | 'dark'
 interface ThemeContextValue {
   /** Current theme. */
   theme: Theme
-  /** Sets theme to explicit value. */
+  /** Keeps the theme API stable; the application only supports dark mode. */
   setTheme: (theme: Theme) => void
-  /** Toggles between light and dark themes. */
+  /** No-op because dark mode is fixed. */
   toggleTheme: () => void
 }
 
@@ -62,60 +59,18 @@ interface ThemeProviderProps {
 export function ThemeProvider({ children }: ThemeProviderProps) {
   const [theme, setThemeState] = useState<Theme>('dark')
 
-  /**
-   * Applies current theme to document root element.
-   *
-   * @param {Theme} nextTheme - Theme to apply.
-   */
-  const applyThemeToDocument = (nextTheme: Theme): void => {
-    const root = window.document.documentElement
-    if (nextTheme === 'dark') {
-      root.classList.add('dark')
-    } else {
-      root.classList.remove('dark')
-    }
-  }
-
-  // Initialize theme from localStorage or system preference.
   useEffect(() => {
+    setThemeState('dark')
+    window.document.documentElement.classList.add('dark')
     try {
-      const stored = window.localStorage.getItem('theme') as Theme | null
-      if (stored === 'light' || stored === 'dark') {
-        setThemeState(stored)
-        applyThemeToDocument(stored)
-        return
-      }
-    } catch {
-      // Ignore storage errors and fallback to media query.
-    }
-
-    const prefersDark = window.matchMedia?.('(prefers-color-scheme: dark)').matches
-    const initial: Theme = prefersDark ? 'dark' : 'light'
-    setThemeState(initial)
-    applyThemeToDocument(initial)
-  }, [])
-
-  /**
-   * Sets theme and persists it.
-   *
-   * @param {Theme} next - Theme value to set.
-   */
-  const setTheme = (next: Theme): void => {
-    setThemeState(next)
-    try {
-      window.localStorage.setItem('theme', next)
+      window.localStorage.setItem('theme', 'dark')
     } catch {
       // Ignore storage errors.
     }
-    applyThemeToDocument(next)
-  }
+  }, [])
 
-  /**
-   * Toggles between light and dark themes.
-   */
-  const toggleTheme = (): void => {
-    setTheme(theme === 'dark' ? 'light' : 'dark')
-  }
+  const setTheme = (_next: Theme): void => {}
+  const toggleTheme = (): void => {}
 
   const value = useMemo(
     () => ({

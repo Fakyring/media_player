@@ -2,7 +2,6 @@
 
 import { useState, type FormEvent, type ReactNode } from 'react'
 import { useLocation, useNavigate } from 'react-router'
-import { ThemeToggle } from './ThemeToggle'
 import { useAuth } from '../../context/AuthContext'
 
 interface AppLayoutProps {
@@ -192,7 +191,6 @@ export function AppLayout({ children }: AppLayoutProps) {
                   Выйти
                 </button>
               )}
-              <ThemeToggle />
             </div>
           </div>
         </div>

@@ -14,6 +14,7 @@ export default function Gallery() {
   const [items, setItems] = useState<MediaItem[]>([])
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState<string | null>(null)
+  const [activeType, setActiveType] = useState<'all' | 'image' | 'video'>('all')
   const [activeCategory, setActiveCategory] = useState<string>('all')
   const [selectedItem, setSelectedItem] = useState<MediaItem | null>(null)
 
@@ -50,19 +51,21 @@ export default function Gallery() {
   const categories = useMemo(() => {
     const set = new Set<string>()
     for (const item of items) {
+      if (activeType !== 'all' && item.type !== activeType) continue
       for (const category of item.categories) {
         set.add(category)
       }
     }
     return ['all', ...Array.from(set).sort((a, b) => a.localeCompare(b))]
-  }, [items])
+  }, [activeType, items])
 
   const filteredItems = useMemo(() => {
-    if (activeCategory === 'all') {
-      return items
-    }
-    return items.filter((item) => item.categories.includes(activeCategory))
-  }, [activeCategory, items])
+    return items.filter((item) => {
+      const matchesType = activeType === 'all' || item.type === activeType
+      const matchesCategory = activeCategory === 'all' || item.categories.includes(activeCategory)
+      return matchesType && matchesCategory
+    })
+  }, [activeCategory, activeType, items])
 
   return (
     <div className="mx-auto max-w-6xl px-4 py-8 text-slate-50">
@@ -77,6 +80,30 @@ export default function Gallery() {
         <div className="text-xs text-slate-400">
           {user ? `Выполнен вход: ${user.name} (@${user.login})` : 'Режим гостя'}
         </div>
+      </div>
+
+      <div className="mt-6 flex flex-wrap gap-2" aria-label="Тип медиа">
+        {([
+          ['all', 'Все медиа'],
+          ['image', 'Фотографии'],
+          ['video', 'Видео'],
+        ] as const).map(([type, label]) => (
+          <button
+            key={type}
+            type="button"
+            onClick={() => {
+              setActiveType(type)
+              setActiveCategory('all')
+            }}
+            className={`rounded-full px-4 py-2 text-sm font-medium ${
+              activeType === type
+                ? 'bg-sky-500 text-slate-950'
+                : 'bg-slate-900 text-slate-200 hover:bg-slate-800'
+            }`}
+          >
+            {label}
+          </button>
+        ))}
       </div>
 
       <div className="mt-6 flex flex-wrap gap-2">

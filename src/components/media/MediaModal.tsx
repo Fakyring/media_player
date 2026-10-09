@@ -35,8 +35,14 @@ export function MediaModal({
   const favorite = isFavorite(item.id)
 
   return (
-    <div className="fixed inset-0 z-40 flex items-center justify-center bg-black/80 px-3 py-4">
-      <div className="relative flex h-full w-full max-w-5xl flex-col overflow-hidden rounded-2xl border border-slate-800 bg-slate-950 shadow-2xl shadow-black/80">
+    <div
+      className="fixed inset-0 z-40 flex items-center justify-center bg-black/80 px-3 py-4"
+      onClick={onClose}
+    >
+      <div
+        className="relative flex h-full w-full max-w-5xl flex-col overflow-hidden rounded-2xl border border-slate-800 bg-slate-950 shadow-2xl shadow-black/80"
+        onClick={(event) => event.stopPropagation()}
+      >
         <header className="flex items-center justify-between gap-3 border-b border-slate-800 px-4 py-2.5">
           <div className="flex min-w-0 flex-col">
             <h2 className="truncate text-sm font-medium text-slate-100">{item.title}</h2>

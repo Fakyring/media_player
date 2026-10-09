@@ -3,13 +3,11 @@
 import { useEffect, useMemo, useState, type ChangeEvent, type FormEvent } from 'react'
 import {
   deleteMedia,
-  fetchAdminUsers,
   fetchMediaList,
   updateMedia,
-  updateUserWhitelist,
   uploadMedia,
 } from '../lib/api'
-import type { AuthUser, MediaItem } from '../types/media'
+import type { MediaItem } from '../types/media'
 import { useAuth } from '../context/AuthContext'
 
 function categoriesToString(categories: string[]): string {
@@ -28,9 +26,8 @@ function stringToCategories(value: string): string[] {
 }
 
 export default function Admin() {
-  const { user, refreshUser } = useAuth()
+  const { user } = useAuth()
   const [items, setItems] = useState<MediaItem[]>([])
-  const [users, setUsers] = useState<AuthUser[]>([])
   const [loading, setLoading] = useState(true)
   const [pageError, setPageError] = useState<string | null>(null)
 
@@ -67,12 +64,6 @@ export default function Admin() {
         ),
       )
 
-      if (user?.isAdmin) {
-        const adminUsers = await fetchAdminUsers()
-        setUsers(adminUsers)
-      } else {
-        setUsers([])
-      }
     } catch (error) {
       setPageError(error instanceof Error ? error.message : 'Не удалось загрузить данные')
     } finally {
@@ -151,16 +142,6 @@ export default function Admin() {
       await loadData()
     } catch (error) {
       setPageError(error instanceof Error ? error.message : 'Не удалось удалить медиа')
-    }
-  }
-
-  const handleWhitelistToggle = async (targetUser: AuthUser, whitelisted: boolean) => {
-    try {
-      await updateUserWhitelist(targetUser.uuid, whitelisted)
-      await refreshUser().catch(() => {})
-      await loadData()
-    } catch (error) {
-      setPageError(error instanceof Error ? error.message : 'Не удалось обновить white-list')
     }
   }
 
@@ -344,46 +325,6 @@ export default function Admin() {
         )}
       </section>
 
-      {user?.isAdmin && (
-        <section className="mt-8 rounded-2xl border border-slate-800 bg-slate-900/70 p-4">
-          <h2 className="text-lg font-medium text-slate-100">White-list пользователей</h2>
-          <div className="mt-4 space-y-3">
-            {users.map((listedUser) => (
-              <div
-                key={listedUser.uuid}
-                className="flex flex-col gap-3 rounded-2xl border border-slate-800 bg-slate-950/70 p-4 sm:flex-row sm:items-center sm:justify-between"
-              >
-                <div>
-                  <p className="font-medium text-slate-100">
-                    {listedUser.name} @{listedUser.login}
-                  </p>
-                  <p className="text-xs text-slate-400">
-                    {listedUser.isAdmin
-                      ? 'Администратор'
-                      : listedUser.whitelisted
-                        ? 'Добавлен в white-list'
-                        : 'Ожидает одобрения'}
-                  </p>
-                </div>
-
-                {!listedUser.isAdmin && (
-                  <button
-                    type="button"
-                    onClick={() => handleWhitelistToggle(listedUser, !listedUser.whitelisted)}
-                    className={`rounded-lg px-4 py-2 text-sm font-medium ${
-                      listedUser.whitelisted
-                        ? 'bg-amber-500 text-amber-950 hover:bg-amber-400'
-                        : 'bg-emerald-500 text-emerald-950 hover:bg-emerald-400'
-                    }`}
-                  >
-                    {listedUser.whitelisted ? 'Убрать из white-list' : 'Одобрить доступ'}
-                  </button>
-                )}
-              </div>
-            ))}
-          </div>
-        </section>
-      )}
     </div>
   )
 }
