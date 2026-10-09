@@ -1,0 +1,38 @@
+services:
+  app:
+    build: .
+    restart: unless-stopped
+    depends_on:
+      mongo:
+        condition: service_healthy
+    environment:
+      PORT: 2486
+      MONGODB_URI: mongodb://mongo:27017/media-library
+    ports:
+      - "2486:2486"
+    volumes:
+      - media_files:/app/media-storage
+    networks:
+      - media_internal
+
+  mongo:
+    image: mongo:8
+    restart: unless-stopped
+    command: ["mongod", "--bind_ip_all"]
+    volumes:
+      - mongo_data:/data/db
+    networks:
+      - media_internal
+    healthcheck:
+      test: ["CMD", "mongosh", "--quiet", "--eval", "db.adminCommand('ping').ok"]
+      interval: 10s
+      timeout: 5s
+      retries: 10
+
+volumes:
+  mongo_data:
+  media_files:
+
+networks:
+  media_internal:
+    driver: bridge

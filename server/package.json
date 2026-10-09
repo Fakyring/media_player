@@ -1,0 +1,15 @@
+{
+  "name": "media-server",
+  "version": "1.0.0",
+  "main": "index.js",
+  "description": "MongoDB-backed media library API and static frontend server.",
+  "scripts": {
+    "start": "node index.js"
+  },
+  "dependencies": {
+    "cors": "^2.8.5",
+    "express": "^4.19.0",
+    "mongoose": "^8.9.5",
+    "multer": "^2.4.0"
+  }
+}
