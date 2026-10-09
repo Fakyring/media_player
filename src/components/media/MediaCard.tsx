@@ -35,14 +35,28 @@ export function MediaCard({ item, favorite, onToggleFavorite, onOpen }: MediaCar
         onClick={onOpen}
         className="relative aspect-video w-full overflow-hidden bg-slate-950"
       >
-        <div className="flex h-full w-full items-center justify-center bg-gradient-to-br from-slate-900 via-slate-950 to-slate-900 transition duration-300 group-hover:scale-[1.03]">
-          <div className="flex flex-col items-center gap-3 text-slate-300">
-            <span className="rounded-full bg-slate-800/80 p-4">{icon}</span>
-            <span className="text-xs uppercase tracking-[0.2em] text-slate-500">
-              {isVideo ? 'Video' : 'Image'}
-            </span>
-          </div>
-        </div>
+        {isVideo ? (
+          <video
+            src={item.src}
+            muted
+            playsInline
+            preload="metadata"
+            onLoadedMetadata={(event) => {
+              const video = event.currentTarget
+              if (Number.isFinite(video.duration) && video.duration > 0) {
+                video.currentTime = Math.min(video.duration * 0.1, 2)
+              }
+            }}
+            className="h-full w-full bg-gradient-to-br from-slate-900 via-slate-950 to-slate-900 object-cover transition duration-300 group-hover:scale-[1.03]"
+          />
+        ) : (
+          <img
+            src={item.src}
+            alt={item.title}
+            loading="lazy"
+            className="h-full w-full bg-gradient-to-br from-slate-900 via-slate-950 to-slate-900 object-cover transition duration-300 group-hover:scale-[1.03]"
+          />
+        )}
 
         <div className="pointer-events-none absolute inset-0 bg-gradient-to-t from-slate-950/80 via-slate-950/10 to-transparent opacity-90" />
 

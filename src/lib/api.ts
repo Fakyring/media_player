@@ -143,6 +143,13 @@ export async function uploadMedia(formData: FormData): Promise<void> {
   }
 }
 
+export async function logoutUser(): Promise<void> {
+  const res = await apiFetch(`${API_BASE}/auth/logout`, { method: 'POST' })
+  if (!res.ok) {
+    throw await parseError(res, 'Failed to logout')
+  }
+}
+
 export async function updateMedia(
   mediaUuid: string,
   payload: { title: string; categories: string[]; isPublic: boolean },

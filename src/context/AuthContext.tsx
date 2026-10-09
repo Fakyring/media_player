@@ -9,7 +9,7 @@ import {
   type ReactNode,
 } from 'react'
 import type { AuthUser } from '../types/media'
-import { fetchCurrentUser, loginUser, registerUser, setToken } from '../lib/api'
+import { fetchCurrentUser, loginUser, logoutUser, registerUser, setToken } from '../lib/api'
 
 interface AuthContextValue {
   user: AuthUser | null
@@ -82,6 +82,7 @@ export function AuthProvider({ children }: AuthProviderProps) {
   }
 
   const logout = (): void => {
+    void logoutUser().catch(() => {})
     setToken(null)
     setUser(null)
   }

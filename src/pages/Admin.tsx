@@ -34,7 +34,8 @@ export default function Admin() {
   const [title, setTitle] = useState('')
   const [categories, setCategories] = useState('')
   const [isPublic, setIsPublic] = useState(true)
-  const [file, setFile] = useState<File | null>(null)
+  const [files, setFiles] = useState<File[]>([])
+  const [fileTitles, setFileTitles] = useState<string[]>([])
   const [uploading, setUploading] = useState(false)
   const [uploadMessage, setUploadMessage] = useState<string | null>(null)
 
@@ -76,13 +77,14 @@ export default function Admin() {
   }, [user?.uuid, user?.isAdmin])
 
   const handleFileChange = (event: ChangeEvent<HTMLInputElement>) => {
-    const selected = event.target.files?.[0] ?? null
-    setFile(selected)
+    const selectedFiles = Array.from(event.target.files ?? [])
+    setFiles(selectedFiles)
+    setFileTitles(selectedFiles.map((file) => file.name.replace(/\.[^.]+$/, '')))
   }
 
   const handleUpload = async (event: FormEvent) => {
     event.preventDefault()
-    if (!file) {
+    if (files.length === 0) {
       setUploadMessage('Выберите файл для загрузки.')
       return
     }
@@ -97,8 +99,11 @@ export default function Admin() {
 
     try {
       const formData = new FormData()
-      formData.append('file', file)
-      formData.append('title', title.trim())
+      files.forEach((file) => formData.append('files', file))
+      formData.append(
+        'titles',
+        JSON.stringify(fileTitles.map((fileTitle) => fileTitle.trim() || title.trim())),
+      )
       formData.append('categories', JSON.stringify(stringToCategories(categories)))
       formData.append('isPublic', String(isPublic))
 
@@ -107,8 +112,9 @@ export default function Admin() {
       setTitle('')
       setCategories('')
       setIsPublic(true)
-      setFile(null)
-      setUploadMessage('Медиа успешно добавлено.')
+      setFiles([])
+      setFileTitles([])
+      setUploadMessage(`Успешно добавлено файлов: ${files.length}.`)
       await loadData()
     } catch (error) {
       setUploadMessage(error instanceof Error ? error.message : 'Ошибка при загрузке медиа')
@@ -220,14 +226,37 @@ export default function Admin() {
             <input
               id="media-file"
               type="file"
+              multiple
               accept="video/*,image/*"
               onChange={handleFileChange}
               className="block w-full text-sm text-slate-50 file:mr-4 file:rounded-md file:border-0 file:bg-emerald-500 file:px-3 file:py-1.5 file:font-medium file:text-emerald-950 hover:file:bg-emerald-400"
             />
+            {files.length > 0 && (
+              <div className="mt-3 space-y-2">
+                <p className="text-xs text-slate-400">Файлов выбрано: {files.length}. Можно изменить название каждого:</p>
+                {files.map((selectedFile, index) => (
+                  <label key={`${selectedFile.name}-${index}`} className="flex items-center gap-3 text-xs text-slate-300">
+                    <span className="min-w-0 flex-1 truncate">{selectedFile.name}</span>
+                    <input
+                      value={fileTitles[index] ?? ''}
+                      onChange={(event) =>
+                        setFileTitles((current) =>
+                          current.map((value, titleIndex) =>
+                            titleIndex === index ? event.target.value : value,
+                          ),
+                        )
+                      }
+                      className="w-1/2 rounded-lg border border-slate-700 bg-slate-950 px-3 py-2 text-slate-50"
+                      aria-label={`Название файла ${selectedFile.name}`}
+                    />
+                  </label>
+                ))}
+              </div>
+            )}
           </div>
 
           {uploadMessage && (
-            <p className={`text-sm ${uploadMessage.includes('успешно') ? 'text-emerald-300' : 'text-red-300'}`}>
+            <p className={`text-sm ${uploadMessage.startsWith('Успешно добавлено') ? 'text-emerald-300' : 'text-red-300'}`}>
               {uploadMessage}
             </p>
           )}

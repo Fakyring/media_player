@@ -200,8 +200,30 @@ async function createAuthToken(user) {
 
 function readBearerToken(req) {
   const header = req.headers.authorization || ''
-  if (!header.startsWith('Bearer ')) return null
-  return header.slice('Bearer '.length).trim() || null
+  if (header.startsWith('Bearer ')) {
+    return header.slice('Bearer '.length).trim() || null
+  }
+
+  const cookieHeader = req.headers.cookie || ''
+  const sessionCookie = cookieHeader
+    .split(';')
+    .map((cookie) => cookie.trim())
+    .find((cookie) => cookie.startsWith('media_session='))
+
+  return sessionCookie ? decodeURIComponent(sessionCookie.slice('media_session='.length)) : null
+}
+
+function setSessionCookie(req, res, token) {
+  const secure = req.secure || req.headers['x-forwarded-proto'] === 'https' ? '; Secure' : ''
+  res.setHeader(
+    'Set-Cookie',
+    `media_session=${encodeURIComponent(token)}; HttpOnly; SameSite=Lax; Path=/; Max-Age=2592000${secure}`,
+  )
+}
+
+function clearSessionCookie(req, res) {
+  const secure = req.secure || req.headers['x-forwarded-proto'] === 'https' ? '; Secure' : ''
+  res.setHeader('Set-Cookie', `media_session=; HttpOnly; SameSite=Lax; Path=/; Max-Age=0${secure}`)
 }
 
 function verifyAuthToken(token) {
@@ -265,6 +287,9 @@ async function getCurrentUser(req) {
 async function attachCurrentUser(req, res, next) {
   try {
     req.currentUser = await getCurrentUser(req)
+    if (req.currentUser && req.headers.authorization) {
+      setSessionCookie(req, res, readBearerToken(req))
+    }
     next()
   } catch (error) {
     next(error)
@@ -395,12 +420,15 @@ const storage = multer.diskStorage({
     }
 
     const uuid = randomUUID()
-    req.generatedMediaUuid = uuid
+    file.generatedMediaUuid = uuid
     cb(null, `${uuid}.${extension}`)
   },
 })
 
-const upload = multer({ storage })
+const upload = multer({
+  storage,
+  limits: { files: 20 },
+})
 
 app.use('/api', attachCurrentUser)
 
@@ -435,6 +463,7 @@ app.post('/api/auth/register', async (req, res) => {
   })
 
   const token = await createAuthToken(user)
+  setSessionCookie(req, res, token)
   return res.status(201).json({ token, user: toSafeUser(user) })
 })
 
@@ -450,7 +479,17 @@ app.post('/api/auth/login', async (req, res) => {
   }
 
   const token = await createAuthToken(user)
+  setSessionCookie(req, res, token)
   return res.json({ token, user: toSafeUser(user) })
+})
+
+app.post('/api/auth/logout', requireAuth, async (req, res) => {
+  const token = readBearerToken(req)
+  if (token) {
+    await Session.deleteOne({ tokenHash: hashToken(token) }).exec()
+  }
+  clearSessionCookie(req, res)
+  return res.json({ success: true })
 })
 
 app.get('/api/media', async (req, res) => {
@@ -503,45 +542,60 @@ app.post('/api/users/me/favorites', requireAuth, async (req, res) => {
   return res.json({ success: true })
 })
 
-app.post('/api/media', requireUploaderAccess, upload.single('file'), async (req, res) => {
-  const uploadedFile = req.file
-  if (!uploadedFile || !req.generatedMediaUuid) {
+app.post('/api/media', requireUploaderAccess, upload.array('files', 20), async (req, res) => {
+  const uploadedFiles = req.files || []
+  if (uploadedFiles.length === 0) {
     return res.status(400).json({ error: 'File is required' })
   }
 
   try {
-    const title = normalizeTitle(req.body?.title)
-    const categories = parseCategories(req.body?.categories)
-    const type = detectMediaType(uploadedFile)
-    const extension = getExtensionFromName(uploadedFile.originalname)
-    const isPublic = parseBoolean(req.body?.isPublic, false)
-
-    if (!type || !extension) {
-      throw new Error('Unsupported media type')
+    let titles = []
+    try {
+      titles = JSON.parse(req.body?.titles || '[]')
+    } catch {
+      throw new Error('Invalid titles metadata')
+    }
+    if (!Array.isArray(titles)) {
+      throw new Error('Titles must be an array')
     }
 
-    const media = await Media.create({
-      uuid: req.generatedMediaUuid,
-      title: title || path.parse(uploadedFile.originalname).name.slice(0, 200),
-      type,
-      extension,
-      categories,
-      isPublic,
-      authorUuid: req.currentUser.uuid,
+    const categories = parseCategories(req.body?.categories)
+    const isPublic = parseBoolean(req.body?.isPublic, false)
+    const records = uploadedFiles.map((file, index) => {
+      const type = detectMediaType(file)
+      const extension = getExtensionFromName(file.originalname)
+      if (!type || !extension || !file.generatedMediaUuid) {
+        throw new Error(`Unsupported media type: ${file.originalname}`)
+      }
+
+      const title = normalizeTitle(titles[index]) || path.parse(file.originalname).name.slice(0, 200)
+      return {
+        uuid: file.generatedMediaUuid,
+        title,
+        type,
+        extension,
+        categories,
+        isPublic,
+        authorUuid: req.currentUser.uuid,
+      }
     })
+
+    const mediaItems = await Media.insertMany(records)
 
     return res.status(201).json({
       success: true,
-      item: {
+      items: mediaItems.map((media) => ({
         id: media.uuid,
         uuid: media.uuid,
         src: `/api/media/${media.uuid}/file`,
-      },
+      })),
     })
   } catch (error) {
-    if (uploadedFile?.path && fs.existsSync(uploadedFile.path)) {
-      await fsp.unlink(uploadedFile.path).catch(() => {})
-    }
+    await Promise.all(
+      uploadedFiles.map((file) =>
+        file.path && fs.existsSync(file.path) ? fsp.unlink(file.path).catch(() => {}) : Promise.resolve(),
+      ),
+    )
     return res.status(400).json({ error: error.message || 'Failed to upload media' })
   }
 })
