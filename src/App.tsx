@@ -6,6 +6,7 @@ import GalleryPage from './pages/Gallery'
 import AdminPage from './pages/Admin'
 import ProfilePage from './pages/Profile'
 import FavoritesPage from './pages/Favorites'
+import AlbumsPage from './pages/Albums'
 import { ThemeProvider } from './context/ThemeContext'
 import { AuthProvider } from './context/AuthContext'
 import { FavoritesProvider } from './context/FavoritesContext'
@@ -24,6 +25,7 @@ export default function App() {
               <Routes>
                 <Route path="/" element={<HomePage />} />
                 <Route path="/gallery" element={<GalleryPage />} />
+                <Route path="/albums" element={<AlbumsPage />} />
                 <Route path="/admin" element={<AdminPage />} />
                 <Route path="/profile" element={<ProfilePage />} />
                 <Route path="/favorites" element={<FavoritesPage />} />

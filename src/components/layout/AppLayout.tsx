@@ -60,7 +60,7 @@ export function AppLayout({ children }: AppLayoutProps) {
               <span>Media Library</span>
             </button>
 
-            <nav className="flex items-center gap-2 text-xs">
+            <nav className="flex flex-wrap items-center gap-2 text-xs">
               <button
                 type="button"
                 onClick={() => navigate('/')}
@@ -80,6 +80,15 @@ export function AppLayout({ children }: AppLayoutProps) {
                 }`}
                 >
                 Медиа
+              </button>
+              <button
+                type="button"
+                onClick={() => navigate('/albums')}
+                className={`rounded-full px-3 py-1.5 ${
+                  isActive('/albums') ? 'bg-slate-800 text-slate-50' : 'text-slate-300 hover:bg-slate-900'
+                }`}
+              >
+                Альбомы
               </button>
               {user && (
                 <button

@@ -2,43 +2,23 @@
 
 import { useEffect, useMemo, useState } from 'react'
 import { fetchMediaList } from '../lib/api'
-import type { MediaAlbum, MediaItem } from '../types/media'
+import type { MediaItem } from '../types/media'
 import { MediaGrid } from '../components/media/MediaGrid'
 import { MediaModal } from '../components/media/MediaModal'
 import { useFavorites } from '../context/FavoritesContext'
 import { useAuth } from '../context/AuthContext'
-import { AlbumModal } from '../components/media/AlbumModal'
 
 export default function Gallery() {
-  const { favorites, isFavorite, toggleFavorite } = useFavorites()
+  const { isFavorite, toggleFavorite } = useFavorites()
   const { user } = useAuth()
   const [items, setItems] = useState<MediaItem[]>([])
-  const [albums, setAlbums] = useState<MediaAlbum[]>([])
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState<string | null>(null)
   const [searchQuery, setSearchQuery] = useState('')
-  const [activeType, setActiveType] = useState<'all' | 'image' | 'video' | 'favorites'>('all')
+  const [activeType, setActiveType] = useState<'all' | 'image' | 'video'>('all')
   const [activeCategory, setActiveCategory] = useState<string>('all')
   const [page, setPage] = useState(0)
   const [selectedItem, setSelectedItem] = useState<MediaItem | null>(null)
-  const [selectedAlbum, setSelectedAlbum] = useState<MediaAlbum | null>(null)
-  const [returnAlbum, setReturnAlbum] = useState<MediaAlbum | null>(null)
-
-  const closeMedia = () => {
-    setSelectedItem(null)
-    if (returnAlbum) {
-      setSelectedAlbum(returnAlbum)
-      setReturnAlbum(null)
-    }
-  }
-
-  const loadMedia = async () => {
-    const data = await fetchMediaList()
-    setItems(data.items)
-    setAlbums(data.albums ?? [])
-    setSelectedAlbum((current) => current ? (data.albums ?? []).find((album) => album.uuid === current.uuid) ?? null : null)
-    setPage(0)
-  }
 
   useEffect(() => {
     let cancelled = false
@@ -49,7 +29,6 @@ export default function Gallery() {
         const data = await fetchMediaList()
         if (!cancelled) {
           setItems(data.items)
-          setAlbums(data.albums ?? [])
         }
       } catch (loadError) {
         if (!cancelled) setError(loadError instanceof Error ? loadError.message : 'Не удалось загрузить медиа')
@@ -67,44 +46,26 @@ export default function Gallery() {
       if (activeType === 'image' || activeType === 'video') {
         if (item.type !== activeType) continue
       }
-      if (activeType === 'favorites' && !favorites.includes(item.id)) continue
       for (const category of item.categories) {
         set.add(category)
       }
     }
     return ['all', ...Array.from(set).sort((a, b) => a.localeCompare(b))]
-  }, [activeType, favorites, items])
+  }, [activeType, items])
 
   const filteredItems = useMemo(() => {
     const query = searchQuery.trim().toLocaleLowerCase()
     return items.filter((item) => {
-      const matchesType = activeType === 'all' || activeType === 'favorites' || item.type === activeType
+      const matchesType = activeType === 'all' || item.type === activeType
       const matchesCategory = activeCategory === 'all' || item.categories.includes(activeCategory)
       const searchableText = [item.title, item.uuid, item.authorName, ...item.categories].join(' ').toLocaleLowerCase()
       const matchesSearch = !query || searchableText.includes(query)
-      const matchesFavorites = activeType !== 'favorites' || favorites.includes(item.id)
-      return matchesType && matchesCategory && matchesSearch && matchesFavorites
+      return matchesType && matchesCategory && matchesSearch
     })
-  }, [activeCategory, activeType, favorites, items, searchQuery])
-
-  const filteredAlbums = useMemo(() => {
-    const query = searchQuery.trim().toLocaleLowerCase()
-    return albums.filter((album) => {
-      const matchingItems = album.items.filter((item) => {
-        const matchesType = activeType === 'all' || activeType === 'favorites' || item.type === activeType
-        const matchesCategory = activeCategory === 'all' || item.categories.includes(activeCategory)
-        const matchesFavorite = activeType !== 'favorites' || favorites.includes(item.id)
-        return matchesType && matchesCategory && matchesFavorite
-      })
-      const searchable = [album.title, ...album.items.flatMap((item) => [item.title, item.uuid, ...item.categories])].join(' ').toLocaleLowerCase()
-      return matchingItems.length > 0 && (!query || searchable.includes(query))
-    })
-  }, [activeCategory, activeType, albums, favorites, searchQuery])
+  }, [activeCategory, activeType, items, searchQuery])
   const pageSize = 30
-  const entryCount = filteredItems.length + filteredAlbums.length
-  const pageCount = Math.ceil(entryCount / pageSize)
+  const pageCount = Math.ceil(filteredItems.length / pageSize)
   const pageItems = filteredItems.slice(page * pageSize, (page + 1) * pageSize)
-  const pageAlbums = filteredAlbums.slice(Math.max(0, page * pageSize - filteredItems.length), Math.max(0, (page + 1) * pageSize - filteredItems.length))
 
   useEffect(() => {
     setPage(0)
@@ -147,22 +108,6 @@ export default function Gallery() {
             {label}
           </button>
         ))}
-        {user && (
-          <button
-            type="button"
-            onClick={() => {
-              setActiveType('favorites')
-              setActiveCategory('all')
-            }}
-            className={`rounded-full px-4 py-2 text-sm font-medium ${
-              activeType === 'favorites'
-                ? 'bg-sky-500 text-slate-950'
-                : 'bg-slate-900 text-slate-200 hover:bg-slate-800'
-            }`}
-          >
-            Избранное
-          </button>
-        )}
       </div>
 
       <div className="mt-6 flex flex-wrap gap-2">
@@ -199,11 +144,9 @@ export default function Gallery() {
         <p className="mt-8 rounded-2xl border border-red-700/40 bg-red-950/30 px-4 py-3 text-sm text-red-300">
           {error}
         </p>
-      ) : filteredItems.length === 0 && filteredAlbums.length === 0 ? (
+      ) : filteredItems.length === 0 ? (
         <p className="mt-8 rounded-2xl border border-slate-800 bg-slate-900/60 px-4 py-6 text-sm text-slate-400">
-          {activeType === 'favorites' && favorites.length === 0
-            ? 'В избранном пока нет медиа.'
-            : 'По вашему запросу ничего не найдено.'}
+          По вашему запросу ничего не найдено.
         </p>
       ) : (
         <div className="mt-8">
@@ -211,9 +154,7 @@ export default function Gallery() {
             items={pageItems}
             isFavorite={isFavorite}
             onToggleFavorite={toggleFavorite}
-            onOpen={(item) => { setReturnAlbum(null); setSelectedAlbum(null); setSelectedItem(item) }}
-            albums={pageAlbums}
-            onOpenAlbum={setSelectedAlbum}
+            onOpen={setSelectedItem}
           />
         </div>
       )}
@@ -229,24 +170,7 @@ export default function Gallery() {
       <MediaModal
         item={selectedItem}
         open={Boolean(selectedItem)}
-        onClose={closeMedia}
-        isFavorite={isFavorite}
-        onToggleFavorite={toggleFavorite}
-      />
-      <AlbumModal
-        album={selectedAlbum}
-        items={items}
-        onClose={() => setSelectedAlbum(null)}
-        onOpenMedia={(item) => {
-          setReturnAlbum(selectedAlbum)
-          setSelectedAlbum(null)
-          setSelectedItem(item)
-        }}
-        onRefresh={async () => {
-          try { await loadMedia() } catch (loadError) {
-            setError(loadError instanceof Error ? loadError.message : 'Не удалось обновить альбом')
-          }
-        }}
+        onClose={() => setSelectedItem(null)}
         isFavorite={isFavorite}
         onToggleFavorite={toggleFavorite}
       />
