@@ -67,10 +67,12 @@ export function MediaCard({ item, favorite, onToggleFavorite, onOpen }: MediaCar
           />
         ) : (
           <img
-            src={item.src}
+            src={item.thumbnailSrc || item.src}
             alt={item.title}
             loading="lazy"
-            className="h-full w-full bg-gradient-to-br from-slate-900 via-slate-950 to-slate-900 object-cover transition duration-300 group-hover:scale-[1.03]"
+            decoding="async"
+            fetchPriority="low"
+            className="h-full w-full bg-gradient-to-br from-slate-900 via-slate-950 to-slate-900 object-cover"
           />
         )}
 

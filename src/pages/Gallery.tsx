@@ -154,7 +154,7 @@ export default function Gallery() {
           onChange={(event) => setSortOrder(event.target.value as typeof sortOrder)}
           className="rounded-lg border border-slate-800 bg-slate-900 px-3 py-2 text-slate-100"
         >
-          <option value="added-desc">Сначала добавленные</option>
+          <option value="added-desc">Сначала новые</option>
           <option value="added-asc">Сначала старые</option>
           <option value="title-asc">По названию А–Я</option>
           <option value="title-desc">По названию Я–А</option>

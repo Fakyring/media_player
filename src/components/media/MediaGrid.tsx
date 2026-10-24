@@ -31,7 +31,7 @@ function AlbumCard({ album, onOpen }: { album: MediaAlbum; onOpen: () => void })
     >
       <div className="relative aspect-video overflow-hidden bg-slate-950">
         {album.preview.type === 'image' ? (
-          <img src={nearViewport ? album.preview.src : undefined} alt="" loading="lazy" className="h-full w-full object-cover transition group-hover:scale-[1.03]" />
+          <img src={nearViewport ? album.preview.thumbnailSrc || album.preview.src : undefined} alt="" loading="lazy" decoding="async" fetchPriority="low" className="h-full w-full object-cover transition group-hover:scale-[1.03]" />
         ) : (
           <video
             src={nearViewport ? album.preview.src : undefined}

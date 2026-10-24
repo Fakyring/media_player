@@ -7,6 +7,7 @@ const fs = require('fs')
 const fsp = require('fs/promises')
 const path = require('path')
 const mongoose = require('mongoose')
+const sharp = require('sharp')
 const {
   createHash,
   randomBytes,
@@ -19,6 +20,7 @@ const ROOT_DIR = path.resolve(__dirname, '..')
 const MEDIA_STORAGE_DIR = path.join(ROOT_DIR, 'media-storage')
 const VIDEO_STORAGE_DIR = path.join(MEDIA_STORAGE_DIR, 'videos')
 const IMAGE_STORAGE_DIR = path.join(MEDIA_STORAGE_DIR, 'images')
+const THUMBNAIL_STORAGE_DIR = path.join(IMAGE_STORAGE_DIR, '.thumbnails')
 const CLIENT_BUILD_DIR = path.join(ROOT_DIR, 'dist')
 
 const PORT = Number.parseInt(process.env.PORT || '2486', 10)
@@ -100,6 +102,9 @@ const Media = mongoose.model('Media', mediaSchema)
 const Album = mongoose.model('Album', albumSchema)
 /** @type {import('mongoose').Model<any>} */
 const Session = mongoose.model('Session', sessionSchema)
+const thumbnailJobs = new Map()
+const thumbnailQueue = []
+let activeThumbnailJobs = 0
 
 function ensureDir(dirPath) {
   return fsp.mkdir(dirPath, { recursive: true })
@@ -186,6 +191,55 @@ function getStorageDir(type) {
 
 function getMediaFilePath(media) {
   return path.join(getStorageDir(media.type), `${media.uuid}.${media.extension}`)
+}
+
+function getThumbnailFilePath(media) {
+  return path.join(THUMBNAIL_STORAGE_DIR, `${media.uuid}.webp`)
+}
+
+async function removeMediaFiles(media) {
+  await Promise.all([
+    fsp.unlink(getMediaFilePath(media)).catch(() => {}),
+    media.type === 'image' ? fsp.unlink(getThumbnailFilePath(media)).catch(() => {}) : Promise.resolve(),
+  ])
+}
+
+async function ensureThumbnail(media, sourcePath) {
+  const thumbnailPath = getThumbnailFilePath(media)
+  if (fs.existsSync(thumbnailPath)) return thumbnailPath
+  if (!thumbnailJobs.has(media.uuid)) {
+    const job = enqueueThumbnail(async () => {
+      if (fs.existsSync(thumbnailPath)) return
+      await ensureDir(THUMBNAIL_STORAGE_DIR)
+      const temporaryPath = `${thumbnailPath}.${randomUUID()}.tmp`
+      try {
+        await sharp(sourcePath, { limitInputPixels: 100_000_000 })
+          .rotate()
+          .resize({ width: 480, height: 320, fit: 'inside', withoutEnlargement: true })
+          .webp({ quality: 72, effort: 4 })
+          .toFile(temporaryPath)
+        await fsp.rename(temporaryPath, thumbnailPath)
+      } catch (error) {
+        await fsp.unlink(temporaryPath).catch(() => {})
+        throw error
+      }
+    })()
+    thumbnailJobs.set(media.uuid, job)
+    job.finally(() => thumbnailJobs.delete(media.uuid)).catch(() => {})
+  }
+  await thumbnailJobs.get(media.uuid)
+  return thumbnailPath
+}
+
+async function enqueueThumbnail(task) {
+  if (activeThumbnailJobs >= 2) await new Promise((resolve) => thumbnailQueue.push(resolve))
+  activeThumbnailJobs += 1
+  try {
+    return await task()
+  } finally {
+    activeThumbnailJobs -= 1
+    thumbnailQueue.shift()?.()
+  }
 }
 
 function hashPassword(password) {
@@ -409,6 +463,7 @@ async function buildMediaList(viewer) {
       categoryId: categories[0] || 'uncategorized',
       isPublic: Boolean(item.isPublic),
       src: `/api/media/${item.uuid}/file`,
+      thumbnailSrc: item.type === 'image' ? `/api/media/${item.uuid}/thumbnail` : undefined,
       authorUuid: item.authorUuid,
       authorName: authorMap.get(item.authorUuid) || 'Unknown',
       canEdit: canEditMedia(item, viewer),
@@ -598,6 +653,23 @@ app.get('/api/media/:mediaUuid/file', async (req, res) => {
   return res.sendFile(filePath)
 })
 
+app.get('/api/media/:mediaUuid/thumbnail', async (req, res) => {
+  const media = await Media.findOne({ uuid: req.params.mediaUuid }).lean().exec()
+  if (!media || media.type !== 'image') return res.status(404).json({ error: 'Image not found' })
+  if (!canViewMedia(media, req.currentUser || null)) return res.status(403).json({ error: 'Access denied' })
+  const filePath = getMediaFilePath(media)
+  if (!fs.existsSync(filePath)) return res.status(404).json({ error: 'Media file not found' })
+  try {
+    const thumbnailPath = await ensureThumbnail(media, filePath)
+    res.setHeader('Cache-Control', 'private, max-age=86400, immutable')
+    return res.type('image/webp').sendFile(thumbnailPath)
+  } catch (error) {
+    console.warn(`Thumbnail generation failed for ${media.uuid}:`, error.message)
+    res.setHeader('Cache-Control', 'private, max-age=3600, must-revalidate')
+    return res.sendFile(filePath)
+  }
+})
+
 app.get('/api/users/me/favorites', requireAuth, async (req, res) => {
   res.json({ favorites: Array.isArray(req.currentUser.favorites) ? req.currentUser.favorites : [] })
 })
@@ -758,8 +830,7 @@ app.delete('/api/albums/:albumUuid', requireAuth, async (req, res) => {
   const albumMedia = await Media.find({ albumUuid: album.uuid }).exec()
   await Promise.all(albumMedia.map(async (media) => {
     await Media.deleteOne({ uuid: media.uuid }).exec()
-    const filePath = getMediaFilePath(media)
-    if (fs.existsSync(filePath)) await fsp.unlink(filePath).catch(() => {})
+    await removeMediaFiles(media)
   }))
   await Album.deleteOne({ uuid: album.uuid }).exec()
   return res.json({ success: true })
@@ -798,14 +869,11 @@ app.delete('/api/media/:mediaUuid', requireAuth, async (req, res) => {
     return res.status(403).json({ error: 'Deleting is allowed only for the author or administrator' })
   }
 
-  const filePath = getMediaFilePath(media)
   await Media.deleteOne({ uuid: media.uuid }).exec()
   if (media.albumUuid && !(await Media.exists({ albumUuid: media.albumUuid }))) {
     await Album.deleteOne({ uuid: media.albumUuid }).exec()
   }
-  if (fs.existsSync(filePath)) {
-    await fsp.unlink(filePath).catch(() => {})
-  }
+  await removeMediaFiles(media)
 
   return res.json({ success: true })
 })
@@ -824,8 +892,7 @@ app.post('/api/media/bulk-delete', requireAuth, async (req, res) => {
 
   await Promise.all(deletable.map(async (media) => {
     await Media.deleteOne({ uuid: media.uuid }).exec()
-    const filePath = getMediaFilePath(media)
-    if (fs.existsSync(filePath)) await fsp.unlink(filePath).catch(() => {})
+    await removeMediaFiles(media)
   }))
   for (const albumUuid of affectedAlbumUuids) {
     if (!(await Media.exists({ albumUuid }))) await Album.deleteOne({ uuid: albumUuid }).exec()

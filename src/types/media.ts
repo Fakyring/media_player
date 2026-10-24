@@ -10,6 +10,7 @@ export interface MediaItem {
   albumUuid?: string | null
   isPublic: boolean
   src: string
+  thumbnailSrc?: string
   authorUuid: string
   authorName: string
   canEdit: boolean
