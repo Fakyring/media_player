@@ -90,6 +90,8 @@ export function MediaPlayer({ item }: MediaPlayerProps) {
         ref={videoRef}
         src={src || undefined}
         controls
+        autoPlay
+        preload="auto"
         className="h-full w-full bg-black object-contain"
         onVolumeChange={(event) => {
           const target = event.currentTarget
