@@ -28,6 +28,8 @@ export default function Admin() {
   const [fileCategories, setFileCategories] = useState<string[][]>([])
   const [fileModifiedDates, setFileModifiedDates] = useState<number[]>([])
   const [uploading, setUploading] = useState(false)
+  const [uploadProgress, setUploadProgress] = useState<{ processed: number; total: number; succeeded: number; currentFile: string; bytesUploaded: number; totalBytes: number } | null>(null)
+  const [uploadFailures, setUploadFailures] = useState<Array<{ name: string; message: string }>>([])
   const [uploadMessage, setUploadMessage] = useState<string | null>(null)
   const [mediaSearch, setMediaSearch] = useState('')
 
@@ -136,52 +138,78 @@ export default function Admin() {
 
     setUploading(true)
     setUploadMessage(null)
+    setUploadFailures([])
+    const uploadFiles = [...files]
+    const totalBytes = uploadFiles.reduce((sum, file) => sum + file.size, 0)
+    let bytesUploaded = 0
+    setUploadProgress({ processed: 0, total: uploadFiles.length, succeeded: 0, currentFile: uploadFiles[0].name, bytesUploaded, totalBytes })
+    let albumUuid: string | undefined = uploadAlbumUuid || undefined
+    let succeeded = 0
+    const failedIndexes: number[] = []
+    const failures: Array<{ name: string; message: string }> = []
 
-    let uploadedCount = 0
     try {
-      const batchSize = 3
-      let albumUuid: string | undefined = uploadAlbumUuid || undefined
-      for (let start = 0; start < files.length; start += batchSize) {
-        const end = Math.min(start + batchSize, files.length)
+      for (let index = 0; index < uploadFiles.length; index += 1) {
+        const file = uploadFiles[index]
+        setUploadProgress({ processed: index, total: uploadFiles.length, succeeded, currentFile: file.name, bytesUploaded, totalBytes })
         const formData = new FormData()
-        files.slice(start, end).forEach((file) => formData.append('files', file))
-        formData.append('titles', JSON.stringify(fileTitles.slice(start, end).map((fileTitle) => fileTitle.trim())))
-        formData.append('categoriesByFile', JSON.stringify(fileCategories.slice(start, end)))
-        formData.append('fileModifiedDates', JSON.stringify(fileModifiedDates.slice(start, end)))
+        formData.append('files', file)
+        formData.append('titles', JSON.stringify([fileTitles[index]?.trim() ?? '']))
+        formData.append('categoriesByFile', JSON.stringify([fileCategories[index] ?? []]))
+        formData.append('fileModifiedDates', JSON.stringify([fileModifiedDates[index] ?? file.lastModified]))
         formData.append('isPublic', String(isPublic))
         if (albumUuid) formData.append('albumUuid', albumUuid)
         else if (createAlbum) formData.append('albumTitle', albumTitle.trim())
 
-        const result = await uploadMedia(formData)
-        albumUuid = result.albumUuid || albumUuid
-        if (albumUuid) setUploadAlbumUuid(albumUuid)
-        uploadedCount = end
-        setUploadMessage(`Загружено ${uploadedCount} из ${files.length} файлов...`)
+        try {
+          const result = await uploadMedia(formData, (loaded, requestTotal) => {
+            const fileProgress = requestTotal > 0 ? Math.min(1, loaded / requestTotal) : 0
+            setUploadProgress({
+              processed: index,
+              total: uploadFiles.length,
+              succeeded,
+              currentFile: file.name,
+              bytesUploaded: bytesUploaded + file.size * fileProgress,
+              totalBytes,
+            })
+          })
+          albumUuid = result.albumUuid || albumUuid
+          succeeded += 1
+        } catch (error) {
+          failedIndexes.push(index)
+          failures.push({
+            name: file.name,
+            message: error instanceof Error ? error.message : 'Неизвестная ошибка загрузки',
+          })
+        }
+        bytesUploaded += file.size
+        setUploadProgress({ processed: index + 1, total: uploadFiles.length, succeeded, currentFile: file.name, bytesUploaded, totalBytes })
       }
 
-      setIsPublic(true)
-      setCreateAlbum(false)
-      setAlbumTitle('')
-      setUploadAlbumUuid(null)
-      setFiles([])
-      setFileTitles([])
-      setFileCategories([])
-      setFileModifiedDates([])
-      setUploadMessage(`Успешно добавлено файлов: ${files.length}.`)
-      await loadData()
-    } catch (error) {
-      if (uploadedCount > 0) {
-        setFiles((current) => current.slice(uploadedCount))
-        setFileTitles((current) => current.slice(uploadedCount))
-        setFileCategories((current) => current.slice(uploadedCount))
-        setFileModifiedDates((current) => current.slice(uploadedCount))
-        setUploadMessage(`Уже загружено ${uploadedCount} файлов. Остальные оставлены для повторной попытки. ${error instanceof Error ? error.message : ''}`)
-        await loadData()
+      const retainFailed = <T,>(values: T[]) => failedIndexes.map((index) => values[index])
+      if (failedIndexes.length > 0) {
+        setFiles(retainFailed(uploadFiles))
+        setFileTitles(retainFailed(fileTitles))
+        setFileCategories(retainFailed(fileCategories))
+        setFileModifiedDates(retainFailed(fileModifiedDates))
+        setUploadAlbumUuid(albumUuid || null)
+        setUploadFailures(failures)
+        setUploadMessage(`Загружено ${succeeded} из ${uploadFiles.length}. Неудачные файлы оставлены для повторной попытки.`)
       } else {
-        setUploadMessage(error instanceof Error ? error.message : 'Ошибка при загрузке медиа')
+        setIsPublic(true)
+        setCreateAlbum(false)
+        setAlbumTitle('')
+        setUploadAlbumUuid(null)
+        setFiles([])
+        setFileTitles([])
+        setFileCategories([])
+        setFileModifiedDates([])
+        setUploadMessage(`Успешно добавлено файлов: ${succeeded}.`)
       }
+      await loadData()
     } finally {
       setUploading(false)
+      setUploadProgress(null)
     }
   }
 
@@ -323,6 +351,7 @@ export default function Admin() {
                       <button
                         type="button"
                         onClick={() => removeSelectedFile(index)}
+                        disabled={uploading}
                         className="rounded-lg px-2 py-1 text-xs text-slate-400 hover:bg-red-950/50 hover:text-red-300"
                         aria-label={`Убрать файл ${selectedFile.name}`}
                       >
@@ -366,10 +395,32 @@ export default function Admin() {
             )}
           </div>
 
+          {uploadProgress && (
+            <div className="space-y-2 rounded-xl border border-slate-800 bg-slate-950/70 p-3" aria-live="polite">
+              <div className="flex justify-between gap-3 text-sm text-slate-200">
+                <span>{uploadProgress.processed} из {uploadProgress.total} файлов</span>
+                <span>{uploadProgress.succeeded} успешно · {uploadProgress.totalBytes > 0 ? Math.floor((uploadProgress.bytesUploaded / uploadProgress.totalBytes) * 100) : 0}%</span>
+              </div>
+              <progress className="h-2 w-full accent-emerald-500" max={uploadProgress.totalBytes} value={uploadProgress.bytesUploaded} />
+              <p className="truncate text-xs text-slate-400">{uploadProgress.processed < uploadProgress.total ? `Сейчас: ${uploadProgress.currentFile}` : 'Проверка результата...'}</p>
+            </div>
+          )}
           {uploadMessage && (
             <p className={`text-sm ${uploadMessage.startsWith('Успешно добавлено') ? 'text-emerald-300' : 'text-red-300'}`}>
               {uploadMessage}
             </p>
+          )}
+          {uploadFailures.length > 0 && (
+            <div className="rounded-xl border border-red-800/70 bg-red-950/30 p-3" role="alert">
+              <h3 className="text-sm font-medium text-red-200">Не удалось загрузить ({uploadFailures.length})</h3>
+              <ul className="mt-2 max-h-56 space-y-2 overflow-y-auto">
+                {uploadFailures.map((failure, index) => (
+                  <li key={`${failure.name}-${index}`} className="break-words text-xs text-red-200">
+                    <span className="font-medium">{failure.name}</span>: {failure.message}
+                  </li>
+                ))}
+              </ul>
+            </div>
           )}
 
           <button

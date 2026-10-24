@@ -132,16 +132,35 @@ export async function updateFavorites(favorites: string[]): Promise<void> {
   }
 }
 
-export async function uploadMedia(formData: FormData): Promise<{ albumUuid?: string }> {
-  const res = await apiFetch(`${API_BASE}/media`, {
-    method: 'POST',
-    body: formData,
+export function uploadMedia(
+  formData: FormData,
+  onProgress?: (loaded: number, total: number) => void,
+): Promise<{ albumUuid?: string }> {
+  return new Promise((resolve, reject) => {
+    const request = new XMLHttpRequest()
+    request.open('POST', `${API_BASE}/media`)
+    const token = getToken()
+    if (token) request.setRequestHeader('Authorization', `Bearer ${token}`)
+    request.upload.onprogress = (event) => {
+      if (event.lengthComputable) onProgress?.(event.loaded, event.total)
+    }
+    request.onerror = () => reject(new Error('Сетевая ошибка при отправке файла'))
+    request.onabort = () => reject(new Error('Загрузка файла была прервана'))
+    request.onload = () => {
+      let data: { albumUuid?: string; error?: string } = {}
+      try {
+        data = JSON.parse(request.responseText)
+      } catch {
+        // Use the HTTP status when the server response is not JSON.
+      }
+      if (request.status < 200 || request.status >= 300) {
+        reject(new Error(data.error || `Ошибка сервера (${request.status})`))
+        return
+      }
+      resolve(data)
+    }
+    request.send(formData)
   })
-
-  if (!res.ok) {
-    throw await parseError(res, 'Failed to upload media')
-  }
-  return (await res.json()) as { albumUuid?: string }
 }
 
 export async function deleteAlbum(albumUuid: string): Promise<void> {
