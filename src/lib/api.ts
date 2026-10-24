@@ -143,6 +143,23 @@ export async function uploadMedia(formData: FormData): Promise<void> {
   }
 }
 
+export async function addMediaToAlbum(albumUuid: string, mediaUuid: string): Promise<void> {
+  const res = await apiFetch(`${API_BASE}/albums/${encodeURIComponent(albumUuid)}/items`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ mediaUuid }),
+  })
+  if (!res.ok) throw await parseError(res, 'Failed to add media to album')
+}
+
+export async function removeMediaFromAlbum(albumUuid: string, mediaUuid: string): Promise<void> {
+  const res = await apiFetch(
+    `${API_BASE}/albums/${encodeURIComponent(albumUuid)}/items/${encodeURIComponent(mediaUuid)}`,
+    { method: 'DELETE' },
+  )
+  if (!res.ok) throw await parseError(res, 'Failed to remove media from album')
+}
+
 export async function logoutUser(): Promise<void> {
   const res = await apiFetch(`${API_BASE}/auth/logout`, { method: 'POST' })
   if (!res.ok) {

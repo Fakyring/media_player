@@ -22,6 +22,10 @@ export function MediaPlayer({ item }: MediaPlayerProps) {
   const [src, setSrc] = useState<string | null>(null)
 
   useEffect(() => {
+    if (isVideo) {
+      setSrc(item.src)
+      return
+    }
     let active = true
     let objectUrl: string | null = null
 
@@ -46,7 +50,7 @@ export function MediaPlayer({ item }: MediaPlayerProps) {
         URL.revokeObjectURL(objectUrl)
       }
     }
-  }, [item.uuid, item.src])
+  }, [isVideo, item.uuid, item.src])
 
   // Initialize volume from localStorage.
   useEffect(() => {

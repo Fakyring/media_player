@@ -1,6 +1,7 @@
 /** @file Visual card component for a single media item. */
 
 import { Lock, PlayCircle, Image as ImageIcon, Star } from 'lucide-react'
+import { useEffect, useRef, useState } from 'react'
 import type { MediaItem } from '../../types/media'
 
 /**
@@ -21,7 +22,22 @@ interface MediaCardProps {
  * MediaCard displays media type, basic info and favorite control for a media item.
  */
 export function MediaCard({ item, favorite, onToggleFavorite, onOpen }: MediaCardProps) {
+  const cardRef = useRef<HTMLElement | null>(null)
+  const [nearViewport, setNearViewport] = useState(false)
   const isVideo = item.type === 'video'
+
+  useEffect(() => {
+    const element = cardRef.current
+    if (!element || nearViewport) return
+    const observer = new IntersectionObserver(([entry]) => {
+      if (entry.isIntersecting) {
+        setNearViewport(true)
+        observer.disconnect()
+      }
+    }, { rootMargin: '240px' })
+    observer.observe(element)
+    return () => observer.disconnect()
+  }, [nearViewport])
   const icon = isVideo ? (
     <PlayCircle className="h-5 w-5 text-emerald-400" />
   ) : (
@@ -29,7 +45,7 @@ export function MediaCard({ item, favorite, onToggleFavorite, onOpen }: MediaCar
   )
 
   return (
-    <article className="group flex flex-col overflow-hidden rounded-2xl border border-slate-800 bg-slate-900/80 shadow-sm shadow-slate-900/80 transition hover:-translate-y-0.5 hover:border-emerald-500/60 hover:shadow-emerald-500/20">
+    <article ref={cardRef} className="group flex flex-col overflow-hidden rounded-2xl border border-slate-800 bg-slate-900/80 shadow-sm shadow-slate-900/80 transition hover:-translate-y-0.5 hover:border-emerald-500/60 hover:shadow-emerald-500/20">
       <button
         type="button"
         onClick={onOpen}
@@ -37,10 +53,10 @@ export function MediaCard({ item, favorite, onToggleFavorite, onOpen }: MediaCar
       >
         {isVideo ? (
           <video
-            src={item.src}
+            src={nearViewport ? item.src : undefined}
             muted
             playsInline
-            preload="metadata"
+            preload={nearViewport ? 'metadata' : 'none'}
             onLoadedMetadata={(event) => {
               const video = event.currentTarget
               if (Number.isFinite(video.duration) && video.duration > 0) {

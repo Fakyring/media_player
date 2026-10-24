@@ -18,6 +18,8 @@ export default function Admin() {
   const [pageError, setPageError] = useState<string | null>(null)
 
   const [isPublic, setIsPublic] = useState(true)
+  const [createAlbum, setCreateAlbum] = useState(false)
+  const [albumTitle, setAlbumTitle] = useState('')
   const [files, setFiles] = useState<File[]>([])
   const [fileTitles, setFileTitles] = useState<string[]>([])
   const [fileCategories, setFileCategories] = useState<string[][]>([])
@@ -146,10 +148,13 @@ export default function Admin() {
       formData.append('categoriesByFile', JSON.stringify(fileCategories))
       formData.append('fileModifiedDates', JSON.stringify(fileModifiedDates))
       formData.append('isPublic', String(isPublic))
+      if (createAlbum) formData.append('albumTitle', albumTitle.trim())
 
       await uploadMedia(formData)
 
       setIsPublic(true)
+      setCreateAlbum(false)
+      setAlbumTitle('')
       setFiles([])
       setFileTitles([])
       setFileCategories([])
@@ -247,6 +252,26 @@ export default function Admin() {
             />
             Публичное медиа
           </label>
+
+          <label className="flex items-center gap-3 text-sm text-slate-200">
+            <input
+              type="checkbox"
+              checked={createAlbum}
+              onChange={(event) => setCreateAlbum(event.target.checked)}
+              className="h-4 w-4"
+            />
+            Объединить выбранные файлы в альбом
+          </label>
+          {createAlbum && (
+            <input
+              required
+              maxLength={200}
+              value={albumTitle}
+              onChange={(event) => setAlbumTitle(event.target.value)}
+              placeholder="Название альбома"
+              className="w-full rounded-lg border border-slate-700 bg-slate-950 px-3 py-2 text-sm text-slate-50 placeholder:text-slate-500"
+            />
+          )}
 
           <div className="space-y-1.5 text-sm">
             <label htmlFor="media-file" className="block text-slate-200">

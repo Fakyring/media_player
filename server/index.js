@@ -55,6 +55,7 @@ const mediaSchema = new mongoose.Schema(
     type: { type: String, enum: ['video', 'image'], required: true },
     extension: { type: String, required: true },
     categories: { type: [String], default: [] },
+    albumUuid: { type: String, default: null, index: true },
     isPublic: { type: Boolean, default: true, index: true },
     authorUuid: { type: String, required: true, index: true },
     fileModifiedAt: { type: Date, default: null },
@@ -63,6 +64,19 @@ const mediaSchema = new mongoose.Schema(
     timestamps: true,
     versionKey: false,
     collection: 'media_items',
+  },
+)
+
+const albumSchema = new mongoose.Schema(
+  {
+    uuid: { type: String, required: true, unique: true, index: true },
+    title: { type: String, required: true },
+    authorUuid: { type: String, required: true, index: true },
+  },
+  {
+    timestamps: true,
+    versionKey: false,
+    collection: 'media_albums',
   },
 )
 
@@ -82,6 +96,8 @@ const sessionSchema = new mongoose.Schema(
 const User = mongoose.model('User', userSchema)
 /** @type {import('mongoose').Model<any>} */
 const Media = mongoose.model('Media', mediaSchema)
+/** @type {import('mongoose').Model<any>} */
+const Album = mongoose.model('Album', albumSchema)
 /** @type {import('mongoose').Model<any>} */
 const Session = mongoose.model('Session', sessionSchema)
 
@@ -361,7 +377,7 @@ async function buildMediaList(viewer) {
   const authorMap = new Map(authors.map((author) => [author.uuid, author.name]))
   const categoryMap = new Map()
 
-  const items = await Promise.all(visibleDocs.map(async (item) => {
+  const mappedItems = await Promise.all(visibleDocs.map(async (item) => {
     const categories = Array.isArray(item.categories) ? item.categories : []
     if (categories.length === 0) {
       const fallbackId = 'uncategorized'
@@ -389,6 +405,7 @@ async function buildMediaList(viewer) {
       extension: item.extension,
       title: item.title,
       categories,
+      albumUuid: item.albumUuid || null,
       categoryId: categories[0] || 'uncategorized',
       isPublic: Boolean(item.isPublic),
       src: `/api/media/${item.uuid}/file`,
@@ -401,9 +418,39 @@ async function buildMediaList(viewer) {
     }
   }))
 
+  const albumDocs = await Album.find({ uuid: { $in: mappedItems.map((item) => item.albumUuid).filter(Boolean) } })
+    .lean()
+    .exec()
+  const albumMap = new Map(albumDocs.map((album) => [album.uuid, album]))
+  const groupedItems = new Map()
+  const items = []
+  for (const item of mappedItems) {
+    if (!item.albumUuid || !albumMap.has(item.albumUuid)) {
+      items.push(item)
+      continue
+    }
+    const group = groupedItems.get(item.albumUuid) || []
+    group.push(item)
+    groupedItems.set(item.albumUuid, group)
+  }
+  const albums = Array.from(groupedItems, ([uuid, albumItems]) => {
+    const album = albumMap.get(uuid)
+    const preview = albumItems[Math.floor(Math.random() * albumItems.length)]
+    return {
+      id: uuid,
+      uuid,
+      title: album.title,
+      authorName: authorMap.get(album.authorUuid) || 'Unknown',
+      canEdit: Boolean(viewer && (viewer.isAdmin || viewer.uuid === album.authorUuid)),
+      preview,
+      items: albumItems,
+    }
+  })
+
   return {
     categories: Array.from(categoryMap.values()).sort((a, b) => a.name.localeCompare(b.name)),
     items,
+    albums,
   }
 }
 
@@ -547,6 +594,7 @@ app.get('/api/media/:mediaUuid/file', async (req, res) => {
     return res.status(404).json({ error: 'Media file not found on disk' })
   }
 
+  res.setHeader('Cache-Control', 'private, max-age=3600, must-revalidate')
   return res.sendFile(filePath)
 })
 
@@ -574,6 +622,7 @@ app.post('/api/users/me/favorites', requireAuth, async (req, res) => {
 
 app.post('/api/media', requireUploaderAccess, upload.array('files', 20), async (req, res) => {
   const uploadedFiles = req.files || []
+  let createdAlbumUuid = null
   if (uploadedFiles.length === 0) {
     return res.status(400).json({ error: 'File is required' })
   }
@@ -601,6 +650,12 @@ app.post('/api/media', requireUploaderAccess, upload.array('files', 20), async (
     }
 
     const isPublic = parseBoolean(req.body?.isPublic, false)
+    const albumTitle = normalizeTitle(req.body?.albumTitle)
+    if (req.body?.albumTitle && !albumTitle) throw new Error('Album title is required')
+    const album = albumTitle
+      ? await Album.create({ uuid: randomUUID(), title: albumTitle, authorUuid: req.currentUser.uuid })
+      : null
+    createdAlbumUuid = album?.uuid || null
     const records = uploadedFiles.map((file, index) => {
       const type = detectMediaType(file)
       const extension = getExtensionFromName(file.originalname)
@@ -619,6 +674,7 @@ app.post('/api/media', requireUploaderAccess, upload.array('files', 20), async (
         type,
         extension,
         categories: parseCategories(categoriesByFile[index]),
+        albumUuid: album?.uuid || null,
         isPublic,
         authorUuid: req.currentUser.uuid,
         fileModifiedAt: Number.isFinite(fileDate) && fileDate > 0 ? new Date(fileDate) : null,
@@ -636,13 +692,53 @@ app.post('/api/media', requireUploaderAccess, upload.array('files', 20), async (
       })),
     })
   } catch (error) {
+    await Media.deleteMany({ uuid: { $in: uploadedFiles.map((file) => file.generatedMediaUuid).filter(Boolean) } }).catch(() => {})
     await Promise.all(
       uploadedFiles.map((file) =>
         file.path && fs.existsSync(file.path) ? fsp.unlink(file.path).catch(() => {}) : Promise.resolve(),
       ),
     )
+    if (createdAlbumUuid) {
+      await Album.deleteOne({ uuid: createdAlbumUuid }).catch(() => {})
+    }
     return res.status(400).json({ error: error.message || 'Failed to upload media' })
   }
+})
+
+app.post('/api/albums/:albumUuid/items', requireAuth, async (req, res) => {
+  const [album, media] = await Promise.all([
+    Album.findOne({ uuid: req.params.albumUuid }).exec(),
+    Media.findOne({ uuid: req.body?.mediaUuid }).exec(),
+  ])
+  if (!album || !media) return res.status(404).json({ error: 'Album or media not found' })
+  if (!canEditMedia(media, req.currentUser) || !(req.currentUser.isAdmin || req.currentUser.uuid === album.authorUuid)) {
+    return res.status(403).json({ error: 'Editing this album and media is not allowed' })
+  }
+  if (media.albumUuid && media.albumUuid !== album.uuid) {
+    return res.status(409).json({ error: 'Media already belongs to another album' })
+  }
+  media.albumUuid = album.uuid
+  await media.save()
+  return res.json({ success: true })
+})
+
+app.delete('/api/albums/:albumUuid/items/:mediaUuid', requireAuth, async (req, res) => {
+  const [album, media] = await Promise.all([
+    Album.findOne({ uuid: req.params.albumUuid }).exec(),
+    Media.findOne({ uuid: req.params.mediaUuid }).exec(),
+  ])
+  if (!album || !media) return res.status(404).json({ error: 'Album or media not found' })
+  if (!canEditMedia(media, req.currentUser) || !(req.currentUser.isAdmin || req.currentUser.uuid === album.authorUuid)) {
+    return res.status(403).json({ error: 'Editing this album and media is not allowed' })
+  }
+  if (media.albumUuid === album.uuid) {
+    media.albumUuid = null
+    await media.save()
+  }
+  if (!(await Media.exists({ albumUuid: album.uuid }))) {
+    await Album.deleteOne({ uuid: album.uuid }).exec()
+  }
+  return res.json({ success: true })
 })
 
 app.patch('/api/media/:mediaUuid', requireAuth, async (req, res) => {
@@ -680,6 +776,9 @@ app.delete('/api/media/:mediaUuid', requireAuth, async (req, res) => {
 
   const filePath = getMediaFilePath(media)
   await Media.deleteOne({ uuid: media.uuid }).exec()
+  if (media.albumUuid && !(await Media.exists({ albumUuid: media.albumUuid }))) {
+    await Album.deleteOne({ uuid: media.albumUuid }).exec()
+  }
   if (fs.existsSync(filePath)) {
     await fsp.unlink(filePath).catch(() => {})
   }

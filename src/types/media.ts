@@ -7,6 +7,7 @@ export interface MediaItem {
   extension: string
   title: string
   categories: string[]
+  albumUuid?: string | null
   isPublic: boolean
   src: string
   authorUuid: string
@@ -15,6 +16,16 @@ export interface MediaItem {
   createdAt?: string
   fileModifiedAt?: string | null
   updatedAt?: string
+}
+
+export interface MediaAlbum {
+  id: string
+  uuid: string
+  title: string
+  authorName: string
+  canEdit: boolean
+  preview: MediaItem
+  items: MediaItem[]
 }
 
 export interface MediaCategory {
@@ -26,6 +37,7 @@ export interface MediaCategory {
 export interface MediaListResponse {
   categories: MediaCategory[]
   items: MediaItem[]
+  albums: MediaAlbum[]
 }
 
 export interface AuthUser {
