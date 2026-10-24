@@ -64,6 +64,12 @@ export default function Albums() {
     }
   }
 
+  const albumMediaIndex = returnAlbum?.items.findIndex((item) => item.uuid === selectedItem?.uuid) ?? -1
+  const navigateAlbumMedia = (direction: -1 | 1) => {
+    const nextItem = returnAlbum?.items[albumMediaIndex + direction]
+    if (nextItem) setSelectedItem(nextItem)
+  }
+
   return (
     <div className="mx-auto max-w-6xl px-4 py-8 text-slate-50">
       <h1 className="text-2xl font-semibold tracking-tight sm:text-3xl">Альбомы</h1>
@@ -111,6 +117,9 @@ export default function Albums() {
         onClose={closeMedia}
         isFavorite={isFavorite}
         onToggleFavorite={toggleFavorite}
+        onNavigate={returnAlbum ? navigateAlbumMedia : undefined}
+        canNavigatePrevious={albumMediaIndex > 0}
+        canNavigateNext={Boolean(returnAlbum && albumMediaIndex >= 0 && albumMediaIndex < returnAlbum.items.length - 1)}
       />
     </div>
   )

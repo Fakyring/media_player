@@ -1,9 +1,9 @@
 /** @file Simple fullscreen modal for displaying media player. */
 
-import { useState } from 'react'
+import { useEffect, useState } from 'react'
 import type { MediaItem } from '../../types/media'
 import { MediaPlayer } from './MediaPlayer'
-import { X, Star } from 'lucide-react'
+import { ChevronLeft, ChevronRight, X, Star } from 'lucide-react'
 
 /**
  * Props for MediaModal component.
@@ -19,6 +19,9 @@ interface MediaModalProps {
   isFavorite: (id: string) => boolean
   /** Toggles favorite state for the item. */
   onToggleFavorite: (id: string) => void
+  onNavigate?: (direction: -1 | 1) => void
+  canNavigatePrevious?: boolean
+  canNavigateNext?: boolean
 }
 
 /**
@@ -30,9 +33,31 @@ export function MediaModal({
   onClose,
   isFavorite,
   onToggleFavorite,
+  onNavigate,
+  canNavigatePrevious = false,
+  canNavigateNext = false,
 }: MediaModalProps) {
   const [fitMode, setFitMode] = useState<'contain' | 'video'>('contain')
   const [aspectRatio, setAspectRatio] = useState(16 / 9)
+
+  useEffect(() => {
+    if (!open || !item || !onNavigate) return
+    const handleKeyDown = (event: KeyboardEvent) => {
+      if (event.altKey || event.ctrlKey || event.metaKey || event.shiftKey) return
+      const target = event.target
+      if (target instanceof HTMLElement && (target.isContentEditable || ['INPUT', 'TEXTAREA', 'SELECT'].includes(target.tagName))) return
+      if (event.key === 'ArrowLeft' && canNavigatePrevious) {
+        event.preventDefault()
+        onNavigate(-1)
+      } else if (event.key === 'ArrowRight' && canNavigateNext) {
+        event.preventDefault()
+        onNavigate(1)
+      }
+    }
+    window.addEventListener('keydown', handleKeyDown)
+    return () => window.removeEventListener('keydown', handleKeyDown)
+  }, [open, item, onNavigate, canNavigatePrevious, canNavigateNext])
+
   if (!open || !item) return null
 
   const favorite = isFavorite(item.id)
@@ -107,6 +132,28 @@ export function MediaModal({
         >
           <MediaPlayer item={item} onAspectRatioChange={setAspectRatio} />
         </div>
+        {onNavigate && (
+          <>
+            <button
+              type="button"
+              aria-label="Предыдущее медиа"
+              disabled={!canNavigatePrevious}
+              onClick={() => onNavigate(-1)}
+              className="absolute left-3 top-1/2 z-10 inline-flex h-12 w-12 -translate-y-1/2 items-center justify-center rounded-full border border-white/20 bg-white/15 text-white/90 shadow-lg backdrop-blur-sm transition hover:bg-white/30 disabled:cursor-default disabled:opacity-25 sm:left-5 sm:h-14 sm:w-14"
+            >
+              <ChevronLeft className="h-7 w-7" />
+            </button>
+            <button
+              type="button"
+              aria-label="Следующее медиа"
+              disabled={!canNavigateNext}
+              onClick={() => onNavigate(1)}
+              className="absolute right-3 top-1/2 z-10 inline-flex h-12 w-12 -translate-y-1/2 items-center justify-center rounded-full border border-white/20 bg-white/15 text-white/90 shadow-lg backdrop-blur-sm transition hover:bg-white/30 disabled:cursor-default disabled:opacity-25 sm:right-5 sm:h-14 sm:w-14"
+            >
+              <ChevronRight className="h-7 w-7" />
+            </button>
+          </>
+        )}
       </div>
     </div>
   )
