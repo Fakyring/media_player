@@ -485,7 +485,7 @@ const storage = multer.diskStorage({
 
 const upload = multer({
   storage,
-  limits: { files: 20 },
+  limits: { files: 100 },
 })
 
 app.use('/api', attachCurrentUser)
@@ -620,7 +620,7 @@ app.post('/api/users/me/favorites', requireAuth, async (req, res) => {
   return res.json({ success: true })
 })
 
-app.post('/api/media', requireUploaderAccess, upload.array('files', 20), async (req, res) => {
+app.post('/api/media', requireUploaderAccess, upload.array('files', 100), async (req, res) => {
   const uploadedFiles = req.files || []
   let createdAlbumUuid = null
   if (uploadedFiles.length === 0) {
@@ -663,9 +663,9 @@ app.post('/api/media', requireUploaderAccess, upload.array('files', 20), async (
         throw new Error(`Unsupported media type: ${file.originalname}`)
       }
 
-      const title = normalizeTitle(titles[index])
+      const title = normalizeTitle(titles[index]) || normalizeTitle(path.parse(file.originalname).name)
       if (!title) {
-        throw new Error(`Title is required for ${file.originalname}`)
+        throw new Error(`Unable to determine title for ${file.originalname}`)
       }
       const fileDate = Number(fileModifiedDates[index])
       return {

@@ -96,12 +96,12 @@ export default function Admin() {
           current.lastModified === file.lastModified,
       )
       if (duplicate) continue
-      if (nextFiles.length >= 20) {
-        setUploadMessage('Можно выбрать не более 20 файлов за раз.')
+      if (nextFiles.length >= 100) {
+        setUploadMessage('Можно выбрать не более 100 файлов за раз.')
         break
       }
       nextFiles.push(file)
-      nextTitles.push('')
+      nextTitles.push(file.name.replace(/\.[^.]+$/, ''))
       addedFiles.push(file)
     }
 
@@ -122,11 +122,6 @@ export default function Admin() {
     event.preventDefault()
     if (files.length === 0) {
       setUploadMessage('Выберите файл для загрузки.')
-      return
-    }
-
-    if (fileTitles.some((fileTitle) => !fileTitle.trim())) {
-      setUploadMessage('Укажите название для каждого файла.')
       return
     }
 
@@ -287,7 +282,7 @@ export default function Admin() {
             />
             {files.length > 0 && (
               <div className="mt-3 space-y-2">
-                <p className="text-xs text-slate-400">Файлов выбрано: {files.length}. Укажите название и категории каждого:</p>
+                <p className="text-xs text-slate-400">Файлов выбрано: {files.length} из 100. Название можно изменить; по умолчанию используется имя файла.</p>
                 {files.map((selectedFile, index) => (
                   <div key={`${selectedFile.name}-${index}`} className="rounded-xl border border-slate-800 bg-slate-950/70 p-3">
                     <div className="mb-3 flex items-center gap-3">
@@ -303,7 +298,6 @@ export default function Admin() {
                     </div>
                     <div className="grid gap-3 sm:grid-cols-2">
                       <input
-                        required
                         value={fileTitles[index] ?? ''}
                         onChange={(event) =>
                           setFileTitles((current) =>
@@ -313,7 +307,7 @@ export default function Admin() {
                           )
                         }
                         className="rounded-lg border border-slate-700 bg-slate-900 px-3 py-2 text-sm text-slate-50"
-                        placeholder="Название медиа"
+                        placeholder={selectedFile.name.replace(/\.[^.]+$/, '') || 'Название медиа'}
                         aria-label={`Название файла ${selectedFile.name}`}
                       />
                       <CategoryPicker
