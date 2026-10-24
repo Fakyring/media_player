@@ -22,7 +22,10 @@ export default function Albums() {
 
   const loadAlbums = async () => {
     const data = await fetchMediaList()
-    setAlbums(data.albums ?? [])
+    setAlbums((data.albums ?? []).map((album) => ({
+      ...album,
+      items: [...album.items].sort((a, b) => new Date(b.createdAt ?? 0).getTime() - new Date(a.createdAt ?? 0).getTime()),
+    })))
     setItems(data.items)
     setSelectedAlbum((current) => current ? (data.albums ?? []).find((album) => album.uuid === current.uuid) ?? null : null)
   }
@@ -32,7 +35,10 @@ export default function Albums() {
     void fetchMediaList()
       .then((data) => {
         if (!cancelled) {
-          setAlbums(data.albums ?? [])
+          setAlbums((data.albums ?? []).map((album) => ({
+            ...album,
+            items: [...album.items].sort((a, b) => new Date(b.createdAt ?? 0).getTime() - new Date(a.createdAt ?? 0).getTime()),
+          })))
           setItems(data.items)
         }
       })

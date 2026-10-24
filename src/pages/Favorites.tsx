@@ -37,7 +37,9 @@ export default function Favorites() {
     }
   }, [user?.uuid])
 
-  const favoriteItems = items.filter((item) => favorites.includes(item.id))
+  const favoriteItems = items
+    .filter((item) => favorites.includes(item.id))
+    .sort((a, b) => new Date(b.createdAt ?? 0).getTime() - new Date(a.createdAt ?? 0).getTime())
 
   return (
     <div className="mx-auto max-w-6xl px-4 py-8 text-slate-50">

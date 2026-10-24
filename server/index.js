@@ -755,7 +755,12 @@ app.delete('/api/albums/:albumUuid', requireAuth, async (req, res) => {
   if (!(req.currentUser.isAdmin || req.currentUser.uuid === album.authorUuid)) {
     return res.status(403).json({ error: 'Deleting this album is not allowed' })
   }
-  await Media.updateMany({ albumUuid: album.uuid }, { $set: { albumUuid: null } }).exec()
+  const albumMedia = await Media.find({ albumUuid: album.uuid }).exec()
+  await Promise.all(albumMedia.map(async (media) => {
+    await Media.deleteOne({ uuid: media.uuid }).exec()
+    const filePath = getMediaFilePath(media)
+    if (fs.existsSync(filePath)) await fsp.unlink(filePath).catch(() => {})
+  }))
   await Album.deleteOne({ uuid: album.uuid }).exec()
   return res.json({ success: true })
 })
@@ -803,6 +808,30 @@ app.delete('/api/media/:mediaUuid', requireAuth, async (req, res) => {
   }
 
   return res.json({ success: true })
+})
+
+app.post('/api/media/bulk-delete', requireAuth, async (req, res) => {
+  const uuids = Array.isArray(req.body?.uuids)
+    ? Array.from(new Set(req.body.uuids.filter((uuid) => typeof uuid === 'string')))
+    : []
+  if (uuids.length === 0) return res.status(400).json({ error: 'Select at least one media item' })
+  if (uuids.length > 100) return res.status(400).json({ error: 'Delete at most 100 media items per request' })
+
+  const mediaItems = await Media.find({ uuid: { $in: uuids } }).exec()
+  const deletable = mediaItems.filter((media) => canEditMedia(media, req.currentUser))
+  const rejected = uuids.filter((uuid) => !deletable.some((media) => media.uuid === uuid))
+  const affectedAlbumUuids = new Set(deletable.map((media) => media.albumUuid).filter(Boolean))
+
+  await Promise.all(deletable.map(async (media) => {
+    await Media.deleteOne({ uuid: media.uuid }).exec()
+    const filePath = getMediaFilePath(media)
+    if (fs.existsSync(filePath)) await fsp.unlink(filePath).catch(() => {})
+  }))
+  for (const albumUuid of affectedAlbumUuids) {
+    if (!(await Media.exists({ albumUuid }))) await Album.deleteOne({ uuid: albumUuid }).exec()
+  }
+
+  return res.json({ deleted: deletable.map((media) => media.uuid), rejected })
 })
 
 app.get('/api/admin/users', requireAuth, requireAdmin, async (req, res) => {

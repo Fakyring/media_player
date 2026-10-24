@@ -17,6 +17,7 @@ export default function Gallery() {
   const [searchQuery, setSearchQuery] = useState('')
   const [activeType, setActiveType] = useState<'all' | 'image' | 'video'>('all')
   const [activeCategory, setActiveCategory] = useState<string>('all')
+  const [sortOrder, setSortOrder] = useState<'added-desc' | 'added-asc' | 'title-asc' | 'title-desc'>('added-desc')
   const [page, setPage] = useState(0)
   const [selectedItem, setSelectedItem] = useState<MediaItem | null>(null)
 
@@ -55,14 +56,22 @@ export default function Gallery() {
 
   const filteredItems = useMemo(() => {
     const query = searchQuery.trim().toLocaleLowerCase()
-    return items.filter((item) => {
+    const filtered = items.filter((item) => {
       const matchesType = activeType === 'all' || item.type === activeType
       const matchesCategory = activeCategory === 'all' || item.categories.includes(activeCategory)
       const searchableText = [item.title, item.uuid, item.authorName, ...item.categories].join(' ').toLocaleLowerCase()
       const matchesSearch = !query || searchableText.includes(query)
       return matchesType && matchesCategory && matchesSearch
     })
-  }, [activeCategory, activeType, items, searchQuery])
+    return filtered.sort((a, b) => {
+      if (sortOrder === 'title-asc' || sortOrder === 'title-desc') {
+        const comparison = a.title.localeCompare(b.title)
+        return sortOrder === 'title-asc' ? comparison : -comparison
+      }
+      const comparison = new Date(a.createdAt ?? 0).getTime() - new Date(b.createdAt ?? 0).getTime()
+      return sortOrder === 'added-asc' ? comparison : -comparison
+    })
+  }, [activeCategory, activeType, items, searchQuery, sortOrder])
   const pageSize = 30
   const pageCount = Math.ceil(filteredItems.length / pageSize)
   const pageItems = filteredItems.slice(page * pageSize, (page + 1) * pageSize)
@@ -136,6 +145,20 @@ export default function Gallery() {
           placeholder="Поиск по названию, ID, автору или категории"
           className="w-full rounded-xl border border-slate-800 bg-slate-900 px-4 py-3 text-sm text-slate-50 outline-none placeholder:text-slate-500 focus:border-sky-500"
         />
+      </label>
+
+      <label className="mt-4 flex flex-wrap items-center gap-2 text-sm text-slate-300">
+        Сортировка
+        <select
+          value={sortOrder}
+          onChange={(event) => setSortOrder(event.target.value as typeof sortOrder)}
+          className="rounded-lg border border-slate-800 bg-slate-900 px-3 py-2 text-slate-100"
+        >
+          <option value="added-desc">Сначала добавленные</option>
+          <option value="added-asc">Сначала старые</option>
+          <option value="title-asc">По названию А–Я</option>
+          <option value="title-desc">По названию Я–А</option>
+        </select>
       </label>
 
       {loading ? (

@@ -3,6 +3,7 @@
 import { useEffect, useMemo, useState, type ChangeEvent, type FormEvent } from 'react'
 import {
   deleteMedia,
+  deleteMediaBulk,
   deleteAlbum,
   fetchMediaList,
   updateMedia,
@@ -32,6 +33,9 @@ export default function Admin() {
   const [uploadFailures, setUploadFailures] = useState<Array<{ name: string; message: string }>>([])
   const [uploadMessage, setUploadMessage] = useState<string | null>(null)
   const [mediaSearch, setMediaSearch] = useState('')
+  const [selectedMediaUuids, setSelectedMediaUuids] = useState<string[]>([])
+  const [bulkDeleteError, setBulkDeleteError] = useState<string | null>(null)
+  const [bulkDeleting, setBulkDeleting] = useState(false)
 
   const [editState, setEditState] = useState<Record<string, { title: string; categories: string[]; isPublic: boolean }>>({})
 
@@ -241,8 +245,44 @@ export default function Admin() {
     }
   }
 
+  const handleBulkDelete = async () => {
+    if (selectedMediaUuids.length === 0) return
+    const confirmed = window.confirm(`Удалить выбранные медиа (${selectedMediaUuids.length})? Это действие нельзя отменить.`)
+    if (!confirmed) return
+    setBulkDeleting(true)
+    setBulkDeleteError(null)
+    const selected = [...selectedMediaUuids]
+    const deleted: string[] = []
+    const rejected: string[] = []
+    let nextOffset = 0
+    try {
+      for (nextOffset = 0; nextOffset < selected.length; nextOffset += 100) {
+        const result = await deleteMediaBulk(selected.slice(nextOffset, nextOffset + 100))
+        deleted.push(...result.deleted)
+        rejected.push(...result.rejected)
+      }
+      setSelectedMediaUuids(rejected)
+      if (rejected.length > 0) setBulkDeleteError(`Удалено ${deleted.length}. Не удалось удалить ${rejected.length}: возможно, нет прав на эти элементы.`)
+      await loadData()
+    } catch (error) {
+      setSelectedMediaUuids([...rejected, ...selected.slice(nextOffset)])
+      if (deleted.length > 0) {
+        setBulkDeleteError(`Удалено ${deleted.length}; оставшиеся элементы сохранены в выборе. ${error instanceof Error ? error.message : ''}`)
+      } else {
+        setBulkDeleteError(error instanceof Error ? error.message : 'Не удалось удалить выбранные медиа')
+      }
+      await loadData()
+    } finally {
+      setBulkDeleting(false)
+    }
+  }
+
+  const toggleMediaSelection = (uuid: string) => {
+    setSelectedMediaUuids((current) => current.includes(uuid) ? current.filter((value) => value !== uuid) : [...current, uuid])
+  }
+
   const handleDeleteAlbum = async (album: MediaAlbum) => {
-    const confirmed = window.confirm(`Удалить альбом «${album.title}»? Медиа останутся в галерее отдельно.`)
+    const confirmed = window.confirm(`Удалить альбом «${album.title}» и все ${album.items.length} медиафайлов в нём? Это действие нельзя отменить.`)
     if (!confirmed) return
     try {
       await deleteAlbum(album.uuid)
@@ -476,6 +516,17 @@ export default function Admin() {
           </p>
         ) : (
           <div className="mt-4 space-y-4">
+            <label className="flex items-center gap-2 text-sm text-slate-300">
+              <input
+                type="checkbox"
+                checked={manageableItems.length > 0 && manageableItems.every((item) => selectedMediaUuids.includes(item.uuid))}
+                onChange={(event) => setSelectedMediaUuids((current) => event.target.checked
+                  ? Array.from(new Set([...current, ...manageableItems.map((item) => item.uuid)]))
+                  : current.filter((uuid) => !manageableItems.some((item) => item.uuid === uuid)))}
+                className="h-4 w-4"
+              />
+              Выбрать все показанные ({manageableItems.length})
+            </label>
             {manageableItems.map((item) => {
               const state = editState[item.uuid]
               if (!state) return null
@@ -484,6 +535,13 @@ export default function Admin() {
                 <div key={item.uuid} className="rounded-2xl border border-slate-800 bg-slate-950/70 p-4">
                   <div className="mb-3 flex flex-wrap items-center justify-between gap-3">
                     <div>
+                      <input
+                        type="checkbox"
+                        checked={selectedMediaUuids.includes(item.uuid)}
+                        onChange={() => toggleMediaSelection(item.uuid)}
+                        className="mr-2 h-4 w-4 align-middle"
+                        aria-label={`Выбрать ${item.title} для удаления`}
+                      />
                       <p className="font-medium text-slate-100">{item.title}</p>
                       <p className="text-xs text-slate-400">
                         Автор: {item.authorName} • Тип: {item.type} • Расширение: .{item.extension}
@@ -557,6 +615,19 @@ export default function Admin() {
           </div>
         )}
       </section>
+
+      {selectedMediaUuids.length > 0 && (
+        <div className="fixed inset-x-0 bottom-0 z-30 border-t border-slate-700 bg-slate-950/95 p-3 shadow-2xl backdrop-blur">
+          <div className="mx-auto flex max-w-6xl flex-wrap items-center justify-between gap-3">
+            <p className="text-sm text-slate-200">Будет удалено медиа: <strong>{selectedMediaUuids.length}</strong></p>
+            <div className="flex items-center gap-2">
+              <button type="button" disabled={bulkDeleting} onClick={() => setSelectedMediaUuids([])} className="rounded-lg bg-slate-800 px-3 py-2 text-sm text-slate-200 disabled:opacity-50">Снять выбор</button>
+              <button type="button" disabled={bulkDeleting} onClick={() => void handleBulkDelete()} className="rounded-lg bg-red-500 px-4 py-2 text-sm font-medium text-red-950 disabled:opacity-50">{bulkDeleting ? 'Удаление...' : `Удалить выбранные (${selectedMediaUuids.length})`}</button>
+            </div>
+            {bulkDeleteError && <p className="w-full text-sm text-red-300" role="alert">{bulkDeleteError}</p>}
+          </div>
+        </div>
+      )}
 
     </div>
   )

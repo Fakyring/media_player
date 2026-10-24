@@ -230,6 +230,16 @@ export async function deleteMedia(mediaUuid: string): Promise<void> {
   }
 }
 
+export async function deleteMediaBulk(mediaUuids: string[]): Promise<{ deleted: string[]; rejected: string[] }> {
+  const res = await apiFetch(`${API_BASE}/media/bulk-delete`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ uuids: mediaUuids }),
+  })
+  if (!res.ok) throw await parseError(res, 'Failed to delete selected media')
+  return (await res.json()) as { deleted: string[]; rejected: string[] }
+}
+
 export async function fetchAdminUsers(search = ''): Promise<AuthUser[]> {
   const params = new URLSearchParams()
   if (search.trim()) params.set('search', search.trim())
