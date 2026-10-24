@@ -2,11 +2,11 @@ FROM node:22-alpine
 
 WORKDIR /app
 
-COPY package.json ./
-RUN npm install
+COPY package.json package-lock.json ./
+RUN npm ci
 
-COPY server/package.json ./server/package.json
-RUN cd server && npm install
+COPY server/package.json server/package-lock.json ./server/
+RUN cd server && npm ci
 
 COPY . .
 RUN npm run build

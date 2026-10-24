@@ -26,7 +26,7 @@ const CLIENT_BUILD_DIR = path.join(ROOT_DIR, 'dist')
 const PORT = Number.parseInt(process.env.PORT || '2486', 10)
 const MONGODB_URI = process.env.MONGODB_URI || 'mongodb://127.0.0.1:27017/media-library'
 const ADMIN_LOGIN = 'admin'
-const ADMIN_PASSWORD = 'lolkek135790'
+const ADMIN_PASSWORD = process.env.ADMIN_PASSWORD
 
 const app = express()
 
@@ -170,20 +170,16 @@ function getExtensionFromName(fileName) {
 }
 
 function detectMediaType(file) {
-  const mime = file?.mimetype || ''
-  if (mime.startsWith('video/')) return 'video'
-  if (mime.startsWith('image/')) return 'image'
-
   const ext = getExtensionFromName(file?.originalname || '')
   if (!ext) return null
 
-  const videoExts = new Set(['mp4', 'webm', 'mov', 'avi', 'mkv', 'm4v'])
-  const imageExts = new Set(['jpg', 'jpeg', 'png', 'webp', 'gif', 'bmp', 'svg', 'heic', 'heif'])
-
-  if (videoExts.has(ext)) return 'video'
-  if (imageExts.has(ext)) return 'image'
+  if (VIDEO_EXTENSIONS.has(ext)) return 'video'
+  if (IMAGE_EXTENSIONS.has(ext)) return 'image'
   return null
 }
+
+const VIDEO_EXTENSIONS = new Set(['mp4', 'webm', 'mov', 'avi', 'mkv', 'm4v'])
+const IMAGE_EXTENSIONS = new Set(['jpg', 'jpeg', 'png', 'webp', 'gif', 'bmp', 'svg', 'heic', 'heif'])
 
 function getStorageDir(type) {
   return type === 'image' ? IMAGE_STORAGE_DIR : VIDEO_STORAGE_DIR
@@ -297,27 +293,6 @@ function clearSessionCookie(req, res) {
   res.setHeader('Set-Cookie', `media_session=; HttpOnly; SameSite=Lax; Path=/; Max-Age=0${secure}`)
 }
 
-function verifyAuthToken(token) {
-  if (!token) return null
-  const [payload, signature] = token.split('.')
-  if (!payload || !signature) return null
-
-  const expectedSignature = signTokenPayload(payload)
-  const signatureBuffer = Buffer.from(signature, 'utf8')
-  const expectedBuffer = Buffer.from(expectedSignature, 'utf8')
-
-  if (signatureBuffer.length !== expectedBuffer.length) return null
-  if (!timingSafeEqual(signatureBuffer, expectedBuffer)) return null
-
-  try {
-    const parsed = JSON.parse(Buffer.from(payload, 'base64url').toString('utf8'))
-    if (!parsed?.uuid || !parsed?.login || parsed.expiresAt < Date.now()) return null
-    return parsed
-  } catch {
-    return null
-  }
-}
-
 function toSafeUser(userDoc) {
   if (!userDoc) return null
   return {
@@ -408,6 +383,10 @@ async function ensureAdminUser() {
     return existingAdmin
   }
 
+  if (typeof ADMIN_PASSWORD !== 'string' || ADMIN_PASSWORD.length < 12) {
+    throw new Error('Set ADMIN_PASSWORD to a password of at least 12 characters before first startup')
+  }
+
   return User.create({
     uuid: randomUUID(),
     login: ADMIN_LOGIN,
@@ -435,7 +414,9 @@ async function buildMediaList(viewer) {
     const categories = Array.isArray(item.categories) ? item.categories : []
     if (categories.length === 0) {
       const fallbackId = 'uncategorized'
-      categoryMap.set(fallbackId, { id: fallbackId, name: fallbackId, count: 1 })
+      const existing = categoryMap.get(fallbackId) || { id: fallbackId, name: fallbackId, count: 0 }
+      existing.count += 1
+      categoryMap.set(fallbackId, existing)
     }
 
     for (const category of categories) {
@@ -527,23 +508,82 @@ const storage = multer.diskStorage({
   },
   filename: (req, file, cb) => {
     const extension = getExtensionFromName(file.originalname)
-    if (!extension) {
-      cb(new Error('Unable to determine file extension'))
+    const type = detectMediaType(file)
+    if (!extension || !type) {
+      cb(new Error('Unsupported media type'))
       return
     }
 
     const uuid = randomUUID()
     file.generatedMediaUuid = uuid
+    req.uploadedFilePaths = [...(req.uploadedFilePaths || []), path.join(getStorageDir(type), `${uuid}.${extension}`)]
     cb(null, `${uuid}.${extension}`)
   },
 })
 
 const upload = multer({
   storage,
-  limits: { files: 100 },
+  limits: { files: 100, fileSize: 20 * 1024 * 1024 },
 })
 
+function forwardRouteErrors(handler) {
+  return (req, res, next) => {
+    try {
+      Promise.resolve(handler(req, res, next)).catch(next)
+    } catch (error) {
+      next(error)
+    }
+  }
+}
+
+function uploadFiles(req, res, next) {
+  upload.array('files', 100)(req, res, async (error) => {
+    if (!error) return next()
+    await Promise.all((req.uploadedFilePaths || []).map((filePath) => fsp.unlink(filePath).catch(() => {})))
+    return next(error)
+  })
+}
+
+async function validateUploadedFile(file) {
+  const extension = getExtensionFromName(file.originalname)
+  const type = detectMediaType(file)
+  if (type === 'image') {
+    const metadata = await sharp(file.path, { limitInputPixels: 100_000_000 }).metadata()
+    const compatibleFormats = {
+      jpg: ['jpeg'], jpeg: ['jpeg'], png: ['png'], webp: ['webp'], gif: ['gif'],
+      bmp: ['bmp'], svg: ['svg'], heic: ['heif'], heif: ['heif'],
+    }
+    if (!compatibleFormats[extension]?.includes(metadata.format)) {
+      throw new Error(`File content does not match its extension: ${file.originalname}`)
+    }
+    return
+  }
+
+  const header = await fsp.open(file.path, 'r')
+  try {
+    const signature = Buffer.alloc(12)
+    const { bytesRead } = await header.read(signature, 0, signature.length, 0)
+    const valid = extension === 'webm' || extension === 'mkv'
+      ? signature.subarray(0, 4).equals(Buffer.from([0x1a, 0x45, 0xdf, 0xa3]))
+      : extension === 'avi'
+        ? signature.toString('ascii', 0, 4) === 'RIFF' && signature.toString('ascii', 8, 12) === 'AVI '
+        : ['mp4', 'mov', 'm4v'].includes(extension) && bytesRead >= 8 && signature.toString('ascii', 4, 8) === 'ftyp'
+    if (!valid) throw new Error(`File content does not match its extension: ${file.originalname}`)
+  } finally {
+    await header.close()
+  }
+}
+
 app.use('/api', attachCurrentUser)
+
+for (const method of ['get', 'post', 'patch', 'delete']) {
+  const registerRoute = app[method].bind(app)
+  app[method] = (...args) => {
+    if (args.length < 2) return registerRoute(...args)
+    const [routePath, ...handlers] = args
+    return registerRoute(routePath, ...handlers.map(forwardRouteErrors))
+  }
+}
 
 app.get('/api/auth/me', requireAuth, (req, res) => {
   res.json({ user: toSafeUser(req.currentUser) })
@@ -650,6 +690,16 @@ app.get('/api/media/:mediaUuid/file', async (req, res) => {
   }
 
   res.setHeader('Cache-Control', 'private, max-age=3600, must-revalidate')
+  res.setHeader('X-Content-Type-Options', 'nosniff')
+  const safeMimeTypes = {
+    mp4: 'video/mp4', webm: 'video/webm', mov: 'video/quicktime', avi: 'video/x-msvideo',
+    mkv: 'video/x-matroska', m4v: 'video/mp4', jpg: 'image/jpeg', jpeg: 'image/jpeg',
+    png: 'image/png', webp: 'image/webp', gif: 'image/gif', bmp: 'image/bmp', svg: 'image/svg+xml',
+    heic: 'image/heic', heif: 'image/heif',
+  }
+  if (media.extension === 'svg') res.setHeader('Content-Disposition', 'attachment')
+  else if (safeMimeTypes[media.extension]) res.type(safeMimeTypes[media.extension])
+  else res.setHeader('Content-Disposition', 'attachment')
   return res.sendFile(filePath)
 })
 
@@ -665,8 +715,7 @@ app.get('/api/media/:mediaUuid/thumbnail', async (req, res) => {
     return res.type('image/webp').sendFile(thumbnailPath)
   } catch (error) {
     console.warn(`Thumbnail generation failed for ${media.uuid}:`, error.message)
-    res.setHeader('Cache-Control', 'private, max-age=3600, must-revalidate')
-    return res.sendFile(filePath)
+    return res.status(415).json({ error: 'Image thumbnail could not be generated' })
   }
 })
 
@@ -692,7 +741,7 @@ app.post('/api/users/me/favorites', requireAuth, async (req, res) => {
   return res.json({ success: true })
 })
 
-app.post('/api/media', requireUploaderAccess, upload.array('files', 100), async (req, res) => {
+app.post('/api/media', requireUploaderAccess, uploadFiles, async (req, res) => {
   const uploadedFiles = req.files || []
   let createdAlbumUuid = null
   if (uploadedFiles.length === 0) {
@@ -700,6 +749,9 @@ app.post('/api/media', requireUploaderAccess, upload.array('files', 100), async 
   }
 
   try {
+    const validations = await Promise.allSettled(uploadedFiles.map(validateUploadedFile))
+    const invalidFile = validations.find((validation) => validation.status === 'rejected')
+    if (invalidFile?.status === 'rejected') throw invalidFile.reason
     let titles = []
     let categoriesByFile = []
     let fileModifiedDates = []
@@ -926,7 +978,10 @@ app.get('/api/admin/users', requireAuth, requireAdmin, async (req, res) => {
 app.patch('/api/admin/users/:userUuid', requireAuth, requireAdmin, async (req, res) => {
   const updates = {}
   if (typeof req.body?.whitelisted !== 'undefined') {
-    updates.whitelisted = Boolean(req.body.whitelisted)
+    if (typeof req.body.whitelisted !== 'boolean') {
+      return res.status(400).json({ error: 'whitelisted must be a boolean' })
+    }
+    updates.whitelisted = req.body.whitelisted
   }
 
   const user = await User.findOneAndUpdate(
@@ -962,7 +1017,10 @@ app.use((error, req, res, next) => {
     next(error)
     return
   }
-  res.status(500).json({ error: error.message || 'Internal server error' })
+  const status = error instanceof multer.MulterError || error.message === 'Unsupported media type'
+    ? 400
+    : Number.isInteger(error.status) ? error.status : 500
+  res.status(status).json({ error: status < 500 ? error.message : 'Internal server error' })
 })
 
 async function start() {

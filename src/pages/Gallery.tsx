@@ -23,6 +23,7 @@ export default function Gallery() {
 
   useEffect(() => {
     let cancelled = false
+    setSelectedItem(null)
     const load = async () => {
       setLoading(true)
       setError(null)

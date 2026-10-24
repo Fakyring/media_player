@@ -9,7 +9,7 @@ import {
   type ReactNode,
 } from 'react'
 import type { AuthUser } from '../types/media'
-import { fetchCurrentUser, loginUser, logoutUser, registerUser, setToken } from '../lib/api'
+import { ApiError, fetchCurrentUser, loginUser, logoutUser, registerUser, setToken } from '../lib/api'
 
 interface AuthContextValue {
   user: AuthUser | null
@@ -50,10 +50,10 @@ export function AuthProvider({ children }: AuthProviderProps) {
     const load = async () => {
       try {
         await refreshUser()
-      } catch {
-        setToken(null)
-        if (!cancelled) {
-          setUser(null)
+      } catch (error) {
+        if (error instanceof ApiError && (error.status === 401 || error.status === 403)) {
+          setToken(null)
+          if (!cancelled) setUser(null)
         }
       } finally {
         if (!cancelled) {

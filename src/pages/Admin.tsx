@@ -36,10 +36,12 @@ export default function Admin() {
   const [selectedMediaUuids, setSelectedMediaUuids] = useState<string[]>([])
   const [bulkDeleteError, setBulkDeleteError] = useState<string | null>(null)
   const [bulkDeleting, setBulkDeleting] = useState(false)
+  const [deletingAlbumUuid, setDeletingAlbumUuid] = useState<string | null>(null)
 
   const [editState, setEditState] = useState<Record<string, { title: string; categories: string[]; isPublic: boolean }>>({})
 
   const canUpload = Boolean(user && (user.isAdmin || user.whitelisted))
+  const canManage = Boolean(user)
   const availableCategories = useMemo(
     () => Array.from(new Set(items.flatMap((item) => item.categories))).sort((a, b) => a.localeCompare(b)),
     [items],
@@ -60,6 +62,7 @@ export default function Admin() {
 
     try {
       const mediaData = await fetchMediaList()
+      if (!user) return
       setItems(mediaData.items)
       setAlbums(mediaData.albums ?? [])
 
@@ -77,14 +80,14 @@ export default function Admin() {
       )
 
     } catch (error) {
-      setPageError(error instanceof Error ? error.message : 'Не удалось загрузить данные')
+      if (user) setPageError(error instanceof Error ? error.message : 'Не удалось загрузить данные')
     } finally {
       setLoading(false)
     }
   }
 
   useEffect(() => {
-    if (!canUpload) {
+    if (!canManage) {
       setLoading(false)
       return
     }
@@ -135,7 +138,7 @@ export default function Admin() {
       return
     }
 
-  if (!canUpload) {
+    if (!canUpload) {
       setUploadMessage('Загрузка разрешена только администраторам и пользователям из white-list.')
       return
     }
@@ -284,11 +287,14 @@ export default function Admin() {
   const handleDeleteAlbum = async (album: MediaAlbum) => {
     const confirmed = window.confirm(`Удалить альбом «${album.title}» и все ${album.items.length} медиафайлов в нём? Это действие нельзя отменить.`)
     if (!confirmed) return
+    setDeletingAlbumUuid(album.uuid)
     try {
       await deleteAlbum(album.uuid)
       await loadData()
     } catch (error) {
       setPageError(error instanceof Error ? error.message : 'Не удалось удалить альбом')
+    } finally {
+      setDeletingAlbumUuid(null)
     }
   }
 
@@ -297,7 +303,7 @@ export default function Admin() {
       <div className="mx-auto max-w-3xl px-4 py-10 text-slate-50">
         <h1 className="text-2xl font-semibold">Управление медиатекой</h1>
         <p className="mt-3 rounded-2xl border border-amber-700/40 bg-amber-950/20 p-4 text-sm text-amber-200">
-          Панель доступна только администраторам и пользователям из white-list.
+          Войдите в систему, чтобы управлять своими медиа.
         </p>
       </div>
     )
@@ -336,7 +342,7 @@ export default function Admin() {
         </div>
       )}
 
-      <section className="mt-8 rounded-2xl border border-slate-800 bg-slate-900/70 p-4">
+      {canUpload && <section className="mt-8 rounded-2xl border border-slate-800 bg-slate-900/70 p-4">
         <h2 className="text-lg font-medium text-slate-100">Добавление медиа</h2>
         <form onSubmit={handleUpload} className="mt-4 space-y-4">
           <label className="flex items-center gap-3 text-sm text-slate-200">
@@ -377,7 +383,7 @@ export default function Admin() {
               id="media-file"
               type="file"
               multiple
-              accept="video/*,image/*,.heic,.heif"
+              accept=".mp4,.webm,.mov,.avi,.mkv,.m4v,.jpg,.jpeg,.png,.webp,.gif,.bmp,.heic,.heif"
               onChange={handleFileChange}
               className="block w-full text-sm text-slate-50 file:mr-4 file:rounded-md file:border-0 file:bg-emerald-500 file:px-3 file:py-1.5 file:font-medium file:text-emerald-950 hover:file:bg-emerald-400"
             />
@@ -471,7 +477,7 @@ export default function Admin() {
             {uploading ? 'Загрузка...' : 'Добавить медиа'}
           </button>
         </form>
-      </section>
+      </section>}
 
       <section className="mt-8 rounded-2xl border border-slate-800 bg-slate-900/70 p-4">
         <h2 className="text-lg font-medium text-slate-100">Мои альбомы</h2>
@@ -485,7 +491,7 @@ export default function Admin() {
                   <p className="truncate text-sm font-medium text-slate-100">{album.title}</p>
                   <p className="text-xs text-slate-400">{album.items.length} элементов</p>
                 </div>
-                <button type="button" onClick={() => void handleDeleteAlbum(album)} className="shrink-0 rounded-lg bg-red-500 px-3 py-1.5 text-xs font-medium text-red-950 hover:bg-red-400">Удалить альбом</button>
+                <button type="button" disabled={deletingAlbumUuid === album.uuid} onClick={() => void handleDeleteAlbum(album)} className="shrink-0 rounded-lg bg-red-500 px-3 py-1.5 text-xs font-medium text-red-950 hover:bg-red-400 disabled:opacity-50">{deletingAlbumUuid === album.uuid ? 'Удаление...' : 'Удалить альбом'}</button>
               </div>
             ))}
           </div>

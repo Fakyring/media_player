@@ -1,26 +1,14 @@
-/** @file Visual card component for a single media item. */
-
 import { Lock, PlayCircle, Image as ImageIcon, Star } from 'lucide-react'
 import { useEffect, useRef, useState } from 'react'
 import type { MediaItem } from '../../types/media'
 
-/**
- * Props for MediaCard component.
- */
 interface MediaCardProps {
-  /** Media item to display. */
   item: MediaItem
-  /** Indicates whether the item is in favorites. */
   favorite: boolean
-  /** Triggered when the favorite state should be toggled. */
   onToggleFavorite: () => void
-  /** Triggered when the item should be opened in the modal player. */
   onOpen: () => void
 }
 
-/**
- * MediaCard displays media type, basic info and favorite control for a media item.
- */
 export function MediaCard({ item, favorite, onToggleFavorite, onOpen }: MediaCardProps) {
   const cardRef = useRef<HTMLElement | null>(null)
   const [nearViewport, setNearViewport] = useState(false)
@@ -28,7 +16,7 @@ export function MediaCard({ item, favorite, onToggleFavorite, onOpen }: MediaCar
 
   useEffect(() => {
     const element = cardRef.current
-    if (!element || nearViewport) return
+    if (!element || nearViewport || !isVideo) return
     const observer = new IntersectionObserver(([entry]) => {
       if (entry.isIntersecting) {
         setNearViewport(true)
@@ -37,7 +25,7 @@ export function MediaCard({ item, favorite, onToggleFavorite, onOpen }: MediaCar
     }, { rootMargin: '240px' })
     observer.observe(element)
     return () => observer.disconnect()
-  }, [nearViewport])
+  }, [isVideo, nearViewport])
   const icon = isVideo ? (
     <PlayCircle className="h-5 w-5 text-emerald-400" />
   ) : (
@@ -45,7 +33,7 @@ export function MediaCard({ item, favorite, onToggleFavorite, onOpen }: MediaCar
   )
 
   return (
-    <article ref={cardRef} className="group flex flex-col overflow-hidden rounded-2xl border border-slate-800 bg-slate-900/80 shadow-sm shadow-slate-900/80 transition hover:-translate-y-0.5 hover:border-emerald-500/60 hover:shadow-emerald-500/20">
+    <article ref={cardRef} className="group flex w-full min-w-0 flex-col overflow-hidden rounded-2xl border border-slate-800 bg-slate-900/80 shadow-sm shadow-slate-900/80 transition hover:-translate-y-0.5 hover:border-emerald-500/60 hover:shadow-emerald-500/20">
       <button
         type="button"
         onClick={onOpen}

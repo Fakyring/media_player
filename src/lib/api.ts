@@ -4,6 +4,12 @@ import type { AuthResponse, AuthUser, MediaListResponse } from '../types/media'
 
 const API_BASE = '/api'
 
+export class ApiError extends Error {
+  constructor(message: string, readonly status: number) {
+    super(message)
+  }
+}
+
 function getToken(): string | null {
   try {
     return window.localStorage.getItem('authToken')
@@ -43,9 +49,9 @@ async function apiFetch(input: string, init: RequestInit = {}): Promise<Response
 async function parseError(response: Response, fallback: string): Promise<Error> {
   try {
     const data = (await response.json()) as { error?: string }
-    return new Error(data.error || fallback)
+    return new ApiError(data.error || fallback, response.status)
   } catch {
-    return new Error(fallback)
+    return new ApiError(fallback, response.status)
   }
 }
 

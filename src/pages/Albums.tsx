@@ -32,6 +32,11 @@ export default function Albums() {
 
   useEffect(() => {
     let cancelled = false
+    setLoading(true)
+    setError(null)
+    setSelectedAlbum(null)
+    setReturnAlbum(null)
+    setSelectedItem(null)
     void fetchMediaList()
       .then((data) => {
         if (!cancelled) {

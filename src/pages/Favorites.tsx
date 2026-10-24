@@ -18,6 +18,9 @@ export default function Favorites() {
 
   useEffect(() => {
     let cancelled = false
+    setLoading(true)
+    setError(null)
+    setSelectedItem(null)
 
     void fetchMediaList()
       .then((data) => {

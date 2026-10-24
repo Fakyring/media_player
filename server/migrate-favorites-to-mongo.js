@@ -16,26 +16,19 @@ const USERS_DIR = path.join(ROOT_DIR, 'users')
  */
 const MONGODB_URI = process.env.MONGODB_URI || 'mongodb://127.0.0.1:27017/media-library'
 
-/**
- * User schema identical to the one in server/index.js.
- */
-const userSchema = new mongoose.Schema({
-  nickname: { type: String, required: true, unique: true },
+const User = mongoose.model('User', new mongoose.Schema({
+  login: { type: String, required: true },
   favorites: { type: [String], default: [] },
-  createdAt: { type: Date, default: Date.now },
-})
-
-/** @type {import('mongoose').Model<any>} */
-const User = mongoose.model('User', userSchema)
+}, { collection: 'accounts' }))
 
 /**
  * Reads favorites.json for a given user directory.
  *
- * @param {string} nickname - User nickname (folder name).
+ * @param {string} login - Account login (folder name).
  * @returns {Promise<string[]>} Parsed favorites or empty array.
  */
-async function readFavoritesFile(nickname) {
-  const filePath = path.join(USERS_DIR, nickname, 'favorites.json')
+async function readFavoritesFile(login) {
+  const filePath = path.join(USERS_DIR, login, 'favorites.json')
   try {
     const raw = await fsp.readFile(filePath, 'utf8')
     const parsed = JSON.parse(raw)
@@ -49,27 +42,24 @@ async function readFavoritesFile(nickname) {
 /**
  * Migrates a single user favorites file into MongoDB.
  *
- * @param {string} nickname - User nickname (folder name).
+ * @param {string} login - Account login (folder name).
  * @returns {Promise<void>} Resolves when migration is done.
  */
-async function migrateUser(nickname) {
-  const favorites = await readFavoritesFile(nickname)
+async function migrateUser(login) {
+  const favorites = await readFavoritesFile(login)
   if (!favorites.length) {
-    // eslint-disable-next-line no-console
-    console.log(`[migrate] User "${nickname}" has no favorites, skipping`)
+    console.log(`[migrate] User "${login}" has no favorites, skipping`)
     return
   }
 
-  const existing = await User.findOne({ nickname }).exec()
-  if (existing) {
-    existing.favorites = favorites
-    await existing.save()
-    // eslint-disable-next-line no-console
-    console.log(`[migrate] Updated user "${nickname}" with ${favorites.length} favorites`)
+  const result = await User.updateOne(
+    { login },
+    { $addToSet: { favorites: { $each: favorites } } },
+  ).exec()
+  if (result.matchedCount > 0) {
+    console.log(`[migrate] Updated user "${login}" with ${favorites.length} favorites`)
   } else {
-    await User.create({ nickname, favorites })
-    // eslint-disable-next-line no-console
-    console.log(`[migrate] Created user "${nickname}" with ${favorites.length} favorites`)
+    console.warn(`[migrate] No existing account found for "${login}"; skipped without creating an account`)
   }
 }
 
@@ -94,15 +84,13 @@ async function migrateAll() {
     return
   }
 
-  // eslint-disable-next-line no-console
   console.log(`[migrate] Found ${userDirs.length} user directories, starting migration...`)
 
-  for (const nickname of userDirs) {
+  for (const login of userDirs) {
     // eslint-disable-next-line no-await-in-loop
-    await migrateUser(nickname)
+    await migrateUser(login)
   }
 
-  // eslint-disable-next-line no-console
   console.log('[migrate] Migration finished')
 }
 
@@ -112,16 +100,14 @@ async function migrateAll() {
 async function main() {
   try {
     await mongoose.connect(MONGODB_URI)
-    // eslint-disable-next-line no-console
     console.log('[migrate] Connected to MongoDB at', MONGODB_URI)
 
     await migrateAll()
   } catch (error) {
-    // eslint-disable-next-line no-console
     console.error('[migrate] Migration failed', error)
+    process.exitCode = 1
   } finally {
     await mongoose.disconnect()
-    // eslint-disable-next-line no-console
     console.log('[migrate] Disconnected from MongoDB')
   }
 }

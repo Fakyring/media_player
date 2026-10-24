@@ -5,6 +5,7 @@ import {
   useContext,
   useEffect,
   useMemo,
+  useRef,
   useState,
   type ReactNode,
 } from 'react'
@@ -61,17 +62,28 @@ interface FavoritesProviderProps {
  * @returns {JSX.Element} Provider wrapping children.
  */
 export function FavoritesProvider({ children }: FavoritesProviderProps) {
-  const { isAuthenticated } = useAuth()
+  const { user } = useAuth()
+  const userUuid = user?.uuid
+  const isAuthenticated = Boolean(userUuid)
   const [favorites, setFavorites] = useState<string[]>([])
   const [loading, setLoading] = useState(false)
+  const saveQueue = useRef(Promise.resolve())
+  const activeUserUuid = useRef(userUuid)
+  activeUserUuid.current = userUuid
+  const latestFavorites = useRef(favorites)
+  latestFavorites.current = favorites
 
   // Load favorites whenever auth state changes.
   useEffect(() => {
-    if (!isAuthenticated) {
+    if (!userUuid) {
+      activeUserUuid.current = undefined
+      latestFavorites.current = []
       setFavorites([])
+      setLoading(false)
       return
     }
 
+    activeUserUuid.current = userUuid
     let cancelled = false
 
     const load = async () => {
@@ -99,7 +111,7 @@ export function FavoritesProvider({ children }: FavoritesProviderProps) {
     return () => {
       cancelled = true
     }
-  }, [isAuthenticated])
+  }, [userUuid])
 
   /**
    * Returns true if the given ID is in favorites.
@@ -114,17 +126,13 @@ export function FavoritesProvider({ children }: FavoritesProviderProps) {
    *
    * @param {string[]} next - New favorites list.
    */
-  const persistIfPossible = (next: string[]): void => {
+  const persistIfPossible = (): void => {
     if (!isAuthenticated) return
     // Fire-and-forget; errors are logged but do not break UI.
-    void (async () => {
-      try {
-        await updateFavorites(next)
-      } catch (error) {
-        // eslint-disable-next-line no-console
-        console.error('Failed to update favorites', error)
-      }
-    })()
+    saveQueue.current = saveQueue.current
+      .catch(() => {})
+      .then(() => activeUserUuid.current === userUuid ? updateFavorites(latestFavorites.current) : undefined)
+      .catch((error: unknown) => console.error('Failed to update favorites', error))
   }
 
   /**
@@ -133,12 +141,13 @@ export function FavoritesProvider({ children }: FavoritesProviderProps) {
    * @param {string} id - Media item ID.
    */
   const toggleFavorite = (id: string): void => {
-    setFavorites((prev) => {
-      const exists = prev.includes(id)
-      const next = exists ? prev.filter((itemId) => itemId !== id) : [...prev, id]
-      persistIfPossible(next)
-      return next
-    })
+    const current = latestFavorites.current
+    const next = current.includes(id)
+      ? current.filter((itemId) => itemId !== id)
+      : [...current, id]
+    latestFavorites.current = next
+    setFavorites(next)
+    persistIfPossible()
   }
 
   /**
@@ -146,7 +155,8 @@ export function FavoritesProvider({ children }: FavoritesProviderProps) {
    */
   const clearFavorites = (): void => {
     setFavorites([])
-    persistIfPossible([])
+    latestFavorites.current = []
+    persistIfPossible()
   }
 
   const value = useMemo(

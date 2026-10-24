@@ -8,6 +8,7 @@ services:
     environment:
       PORT: 2486
       MONGODB_URI: mongodb://mongo:27017/media-library
+      ADMIN_PASSWORD: ${ADMIN_PASSWORD:-}
     ports:
       - "2486:2486"
     volumes:

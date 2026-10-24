@@ -55,8 +55,13 @@ export function MediaPlayer({ item, onAspectRatioChange }: MediaPlayerProps) {
 
   // Initialize volume from localStorage.
   useEffect(() => {
-    const stored = window.localStorage.getItem('mediaPlayerVolume')
-    const parsed = stored ? Number.parseFloat(stored) : Number.NaN
+    let parsed = Number.NaN
+    try {
+      const stored = window.localStorage.getItem('mediaPlayerVolume')
+      parsed = stored ? Number.parseFloat(stored) : Number.NaN
+    } catch {
+      parsed = Number.NaN
+    }
     if (!Number.isNaN(parsed) && parsed >= 0 && parsed <= 1) {
       setVolume(parsed)
       if (videoRef.current) {
@@ -67,7 +72,11 @@ export function MediaPlayer({ item, onAspectRatioChange }: MediaPlayerProps) {
 
   // Update localStorage and video element when volume changes.
   useEffect(() => {
-    window.localStorage.setItem('mediaPlayerVolume', String(volume))
+    try {
+      window.localStorage.setItem('mediaPlayerVolume', String(volume))
+    } catch {
+      // Volume control remains available when browser storage is disabled.
+    }
     if (videoRef.current) {
       videoRef.current.volume = volume
     }

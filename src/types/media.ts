@@ -7,6 +7,7 @@ export interface MediaItem {
   extension: string
   title: string
   categories: string[]
+  categoryId: string
   albumUuid?: string | null
   isPublic: boolean
   src: string
