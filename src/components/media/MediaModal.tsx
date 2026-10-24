@@ -1,5 +1,6 @@
 /** @file Simple fullscreen modal for displaying media player. */
 
+import { useState } from 'react'
 import type { MediaItem } from '../../types/media'
 import { MediaPlayer } from './MediaPlayer'
 import { X, Star } from 'lucide-react'
@@ -30,9 +31,12 @@ export function MediaModal({
   isFavorite,
   onToggleFavorite,
 }: MediaModalProps) {
+  const [fitMode, setFitMode] = useState<'contain' | 'video'>('contain')
+  const [aspectRatio, setAspectRatio] = useState(16 / 9)
   if (!open || !item) return null
 
   const favorite = isFavorite(item.id)
+  const fittedWidth = `min(95vw, ${Math.max(0.5, aspectRatio) * 82}vh)`
 
   return (
     <div
@@ -40,7 +44,8 @@ export function MediaModal({
       onClick={onClose}
     >
       <div
-        className="relative flex h-full w-full max-w-5xl flex-col overflow-hidden rounded-2xl border border-slate-800 bg-slate-950 shadow-2xl shadow-black/80"
+        style={fitMode === 'video' && item.type === 'video' ? { width: fittedWidth } : undefined}
+        className={`relative flex ${fitMode === 'video' && item.type === 'video' ? 'max-h-[95vh]' : 'h-full w-full max-w-5xl'} flex-col overflow-hidden rounded-2xl border border-slate-800 bg-slate-950 shadow-2xl shadow-black/80`}
         onClick={(event) => event.stopPropagation()}
       >
         <header className="flex items-center justify-between gap-3 border-b border-slate-800 px-4 py-2.5">
@@ -51,6 +56,26 @@ export function MediaModal({
             </p>
           </div>
           <div className="flex items-center gap-2">
+            {item.type === 'video' && (
+              <div className="flex rounded-full bg-slate-900 p-0.5" aria-label="Масштаб видео">
+                <button
+                  type="button"
+                  aria-pressed={fitMode === 'contain'}
+                  onClick={() => setFitMode('contain')}
+                  className={`rounded-full px-2.5 py-1 text-[11px] ${fitMode === 'contain' ? 'bg-sky-500 text-slate-950' : 'text-slate-300 hover:bg-slate-800'}`}
+                >
+                  Вписать
+                </button>
+                <button
+                  type="button"
+                  aria-pressed={fitMode === 'video'}
+                  onClick={() => setFitMode('video')}
+                  className={`rounded-full px-2.5 py-1 text-[11px] ${fitMode === 'video' ? 'bg-sky-500 text-slate-950' : 'text-slate-300 hover:bg-slate-800'}`}
+                >
+                  По размеру видео
+                </button>
+              </div>
+            )}
             <button
               type="button"
               onClick={() => onToggleFavorite(item.id)}
@@ -76,8 +101,11 @@ export function MediaModal({
           </div>
         </header>
 
-        <div className="flex-1 bg-black">
-          <MediaPlayer item={item} />
+        <div
+          style={fitMode === 'video' && item.type === 'video' ? { aspectRatio, maxHeight: '82vh' } : undefined}
+          className={`min-h-0 bg-black ${fitMode === 'video' && item.type === 'video' ? 'w-full flex-none' : 'flex-1'}`}
+        >
+          <MediaPlayer item={item} onAspectRatioChange={setAspectRatio} />
         </div>
       </div>
     </div>

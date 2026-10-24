@@ -10,12 +10,13 @@ import { fetchMediaFile } from '../../lib/api'
 interface MediaPlayerProps {
   /** Media item to display. */
   item: MediaItem
+  onAspectRatioChange?: (ratio: number) => void
 }
 
 /**
  * MediaPlayer renders either a video element with persisted volume or a full-size image preview.
  */
-export function MediaPlayer({ item }: MediaPlayerProps) {
+export function MediaPlayer({ item, onAspectRatioChange }: MediaPlayerProps) {
   const isVideo = item.type === 'video'
   const videoRef = useRef<HTMLVideoElement | null>(null)
   const [volume, setVolume] = useState(1)
@@ -92,6 +93,10 @@ export function MediaPlayer({ item }: MediaPlayerProps) {
         controls
         autoPlay
         preload="auto"
+        onLoadedMetadata={(event) => {
+          const { videoWidth, videoHeight } = event.currentTarget
+          if (videoWidth > 0 && videoHeight > 0) onAspectRatioChange?.(videoWidth / videoHeight)
+        }}
         className="h-full w-full bg-black object-contain"
         onVolumeChange={(event) => {
           const target = event.currentTarget
@@ -101,21 +106,6 @@ export function MediaPlayer({ item }: MediaPlayerProps) {
 
       {!src && <p className="px-4 py-2 text-xs text-slate-400">Загрузка медиа...</p>}
 
-      <div className="flex items-center gap-3 border-t border-slate-800 bg-slate-950/95 px-4 py-2 text-xs text-slate-200">
-        <span className="text-[11px] uppercase tracking-wide text-slate-500">Громкость</span>
-        <input
-          type="range"
-          min={0}
-          max={1}
-          step={0.01}
-          value={volume}
-          onChange={(e) => setVolume(Number.parseFloat(e.target.value))}
-          className="h-1.5 flex-1 cursor-pointer appearance-none rounded-full bg-slate-800 accent-emerald-500"
-        />
-        <span className="w-10 text-right tabular-nums text-slate-400">
-          {Math.round(volume * 100)}%
-        </span>
-      </div>
     </div>
   )
 }
