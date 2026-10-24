@@ -3,23 +3,26 @@
 import { useEffect, useMemo, useState, type ChangeEvent, type FormEvent } from 'react'
 import {
   deleteMedia,
+  deleteAlbum,
   fetchMediaList,
   updateMedia,
   uploadMedia,
 } from '../lib/api'
-import type { MediaItem } from '../types/media'
+import type { MediaAlbum, MediaItem } from '../types/media'
 import { useAuth } from '../context/AuthContext'
 import { CategoryPicker } from '../components/media/CategoryPicker'
 
 export default function Admin() {
   const { user } = useAuth()
   const [items, setItems] = useState<MediaItem[]>([])
+  const [albums, setAlbums] = useState<MediaAlbum[]>([])
   const [loading, setLoading] = useState(true)
   const [pageError, setPageError] = useState<string | null>(null)
 
   const [isPublic, setIsPublic] = useState(true)
   const [createAlbum, setCreateAlbum] = useState(false)
   const [albumTitle, setAlbumTitle] = useState('')
+  const [uploadAlbumUuid, setUploadAlbumUuid] = useState<string | null>(null)
   const [files, setFiles] = useState<File[]>([])
   const [fileTitles, setFileTitles] = useState<string[]>([])
   const [fileCategories, setFileCategories] = useState<string[][]>([])
@@ -52,6 +55,7 @@ export default function Admin() {
     try {
       const mediaData = await fetchMediaList()
       setItems(mediaData.items)
+      setAlbums(mediaData.albums ?? [])
 
       setEditState(
         Object.fromEntries(
@@ -133,23 +137,32 @@ export default function Admin() {
     setUploading(true)
     setUploadMessage(null)
 
+    let uploadedCount = 0
     try {
-      const formData = new FormData()
-      files.forEach((file) => formData.append('files', file))
-      formData.append(
-        'titles',
-        JSON.stringify(fileTitles.map((fileTitle) => fileTitle.trim())),
-      )
-      formData.append('categoriesByFile', JSON.stringify(fileCategories))
-      formData.append('fileModifiedDates', JSON.stringify(fileModifiedDates))
-      formData.append('isPublic', String(isPublic))
-      if (createAlbum) formData.append('albumTitle', albumTitle.trim())
+      const batchSize = 3
+      let albumUuid: string | undefined = uploadAlbumUuid || undefined
+      for (let start = 0; start < files.length; start += batchSize) {
+        const end = Math.min(start + batchSize, files.length)
+        const formData = new FormData()
+        files.slice(start, end).forEach((file) => formData.append('files', file))
+        formData.append('titles', JSON.stringify(fileTitles.slice(start, end).map((fileTitle) => fileTitle.trim())))
+        formData.append('categoriesByFile', JSON.stringify(fileCategories.slice(start, end)))
+        formData.append('fileModifiedDates', JSON.stringify(fileModifiedDates.slice(start, end)))
+        formData.append('isPublic', String(isPublic))
+        if (albumUuid) formData.append('albumUuid', albumUuid)
+        else if (createAlbum) formData.append('albumTitle', albumTitle.trim())
 
-      await uploadMedia(formData)
+        const result = await uploadMedia(formData)
+        albumUuid = result.albumUuid || albumUuid
+        if (albumUuid) setUploadAlbumUuid(albumUuid)
+        uploadedCount = end
+        setUploadMessage(`Загружено ${uploadedCount} из ${files.length} файлов...`)
+      }
 
       setIsPublic(true)
       setCreateAlbum(false)
       setAlbumTitle('')
+      setUploadAlbumUuid(null)
       setFiles([])
       setFileTitles([])
       setFileCategories([])
@@ -157,7 +170,16 @@ export default function Admin() {
       setUploadMessage(`Успешно добавлено файлов: ${files.length}.`)
       await loadData()
     } catch (error) {
-      setUploadMessage(error instanceof Error ? error.message : 'Ошибка при загрузке медиа')
+      if (uploadedCount > 0) {
+        setFiles((current) => current.slice(uploadedCount))
+        setFileTitles((current) => current.slice(uploadedCount))
+        setFileCategories((current) => current.slice(uploadedCount))
+        setFileModifiedDates((current) => current.slice(uploadedCount))
+        setUploadMessage(`Уже загружено ${uploadedCount} файлов. Остальные оставлены для повторной попытки. ${error instanceof Error ? error.message : ''}`)
+        await loadData()
+      } else {
+        setUploadMessage(error instanceof Error ? error.message : 'Ошибка при загрузке медиа')
+      }
     } finally {
       setUploading(false)
     }
@@ -188,6 +210,17 @@ export default function Admin() {
       await loadData()
     } catch (error) {
       setPageError(error instanceof Error ? error.message : 'Не удалось удалить медиа')
+    }
+  }
+
+  const handleDeleteAlbum = async (album: MediaAlbum) => {
+    const confirmed = window.confirm(`Удалить альбом «${album.title}»? Медиа останутся в галерее отдельно.`)
+    if (!confirmed) return
+    try {
+      await deleteAlbum(album.uuid)
+      await loadData()
+    } catch (error) {
+      setPageError(error instanceof Error ? error.message : 'Не удалось удалить альбом')
     }
   }
 
@@ -276,7 +309,7 @@ export default function Admin() {
               id="media-file"
               type="file"
               multiple
-              accept="video/*,image/*"
+              accept="video/*,image/*,.heic,.heif"
               onChange={handleFileChange}
               className="block w-full text-sm text-slate-50 file:mr-4 file:rounded-md file:border-0 file:bg-emerald-500 file:px-3 file:py-1.5 file:font-medium file:text-emerald-950 hover:file:bg-emerald-400"
             />
@@ -347,6 +380,25 @@ export default function Admin() {
             {uploading ? 'Загрузка...' : 'Добавить медиа'}
           </button>
         </form>
+      </section>
+
+      <section className="mt-8 rounded-2xl border border-slate-800 bg-slate-900/70 p-4">
+        <h2 className="text-lg font-medium text-slate-100">Мои альбомы</h2>
+        {albums.filter((album) => album.canEdit).length === 0 ? (
+          <p className="mt-3 text-sm text-slate-400">Нет альбомов, доступных для управления.</p>
+        ) : (
+          <div className="mt-3 space-y-2">
+            {albums.filter((album) => album.canEdit).map((album) => (
+              <div key={album.uuid} className="flex items-center justify-between gap-3 rounded-xl border border-slate-800 bg-slate-950/70 p-3">
+                <div className="min-w-0">
+                  <p className="truncate text-sm font-medium text-slate-100">{album.title}</p>
+                  <p className="text-xs text-slate-400">{album.items.length} элементов</p>
+                </div>
+                <button type="button" onClick={() => void handleDeleteAlbum(album)} className="shrink-0 rounded-lg bg-red-500 px-3 py-1.5 text-xs font-medium text-red-950 hover:bg-red-400">Удалить альбом</button>
+              </div>
+            ))}
+          </div>
+        )}
       </section>
 
       <section className="mt-8 rounded-2xl border border-slate-800 bg-slate-900/70 p-4">

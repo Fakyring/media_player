@@ -173,7 +173,7 @@ function detectMediaType(file) {
   if (!ext) return null
 
   const videoExts = new Set(['mp4', 'webm', 'mov', 'avi', 'mkv', 'm4v'])
-  const imageExts = new Set(['jpg', 'jpeg', 'png', 'webp', 'gif', 'bmp', 'svg'])
+  const imageExts = new Set(['jpg', 'jpeg', 'png', 'webp', 'gif', 'bmp', 'svg', 'heic', 'heif'])
 
   if (videoExts.has(ext)) return 'video'
   if (imageExts.has(ext)) return 'image'
@@ -652,10 +652,17 @@ app.post('/api/media', requireUploaderAccess, upload.array('files', 100), async 
     const isPublic = parseBoolean(req.body?.isPublic, false)
     const albumTitle = normalizeTitle(req.body?.albumTitle)
     if (req.body?.albumTitle && !albumTitle) throw new Error('Album title is required')
-    const album = albumTitle
-      ? await Album.create({ uuid: randomUUID(), title: albumTitle, authorUuid: req.currentUser.uuid })
-      : null
-    createdAlbumUuid = album?.uuid || null
+    let album = null
+    if (req.body?.albumUuid) {
+      album = await Album.findOne({ uuid: req.body.albumUuid }).exec()
+      if (!album) throw new Error('Album not found')
+      if (!(req.currentUser.isAdmin || req.currentUser.uuid === album.authorUuid)) {
+        throw new Error('Editing this album is not allowed')
+      }
+    } else if (albumTitle) {
+      album = await Album.create({ uuid: randomUUID(), title: albumTitle, authorUuid: req.currentUser.uuid })
+      createdAlbumUuid = album.uuid
+    }
     const records = uploadedFiles.map((file, index) => {
       const type = detectMediaType(file)
       const extension = getExtensionFromName(file.originalname)
@@ -685,6 +692,7 @@ app.post('/api/media', requireUploaderAccess, upload.array('files', 100), async 
 
     return res.status(201).json({
       success: true,
+      albumUuid: album?.uuid,
       items: mediaItems.map((media) => ({
         id: media.uuid,
         uuid: media.uuid,
@@ -738,6 +746,17 @@ app.delete('/api/albums/:albumUuid/items/:mediaUuid', requireAuth, async (req, r
   if (!(await Media.exists({ albumUuid: album.uuid }))) {
     await Album.deleteOne({ uuid: album.uuid }).exec()
   }
+  return res.json({ success: true })
+})
+
+app.delete('/api/albums/:albumUuid', requireAuth, async (req, res) => {
+  const album = await Album.findOne({ uuid: req.params.albumUuid }).exec()
+  if (!album) return res.status(404).json({ error: 'Album not found' })
+  if (!(req.currentUser.isAdmin || req.currentUser.uuid === album.authorUuid)) {
+    return res.status(403).json({ error: 'Deleting this album is not allowed' })
+  }
+  await Media.updateMany({ albumUuid: album.uuid }, { $set: { albumUuid: null } }).exec()
+  await Album.deleteOne({ uuid: album.uuid }).exec()
   return res.json({ success: true })
 })
 

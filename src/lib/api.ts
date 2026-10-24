@@ -132,7 +132,7 @@ export async function updateFavorites(favorites: string[]): Promise<void> {
   }
 }
 
-export async function uploadMedia(formData: FormData): Promise<void> {
+export async function uploadMedia(formData: FormData): Promise<{ albumUuid?: string }> {
   const res = await apiFetch(`${API_BASE}/media`, {
     method: 'POST',
     body: formData,
@@ -141,6 +141,12 @@ export async function uploadMedia(formData: FormData): Promise<void> {
   if (!res.ok) {
     throw await parseError(res, 'Failed to upload media')
   }
+  return (await res.json()) as { albumUuid?: string }
+}
+
+export async function deleteAlbum(albumUuid: string): Promise<void> {
+  const res = await apiFetch(`${API_BASE}/albums/${encodeURIComponent(albumUuid)}`, { method: 'DELETE' })
+  if (!res.ok) throw await parseError(res, 'Failed to delete album')
 }
 
 export async function addMediaToAlbum(albumUuid: string, mediaUuid: string): Promise<void> {

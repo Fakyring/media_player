@@ -22,6 +22,15 @@ export default function Gallery() {
   const [page, setPage] = useState(0)
   const [selectedItem, setSelectedItem] = useState<MediaItem | null>(null)
   const [selectedAlbum, setSelectedAlbum] = useState<MediaAlbum | null>(null)
+  const [returnAlbum, setReturnAlbum] = useState<MediaAlbum | null>(null)
+
+  const closeMedia = () => {
+    setSelectedItem(null)
+    if (returnAlbum) {
+      setSelectedAlbum(returnAlbum)
+      setReturnAlbum(null)
+    }
+  }
 
   const loadMedia = async () => {
     const data = await fetchMediaList()
@@ -202,7 +211,7 @@ export default function Gallery() {
             items={pageItems}
             isFavorite={isFavorite}
             onToggleFavorite={toggleFavorite}
-            onOpen={(item) => { setSelectedAlbum(null); setSelectedItem(item) }}
+            onOpen={(item) => { setReturnAlbum(null); setSelectedAlbum(null); setSelectedItem(item) }}
             albums={pageAlbums}
             onOpenAlbum={setSelectedAlbum}
           />
@@ -220,7 +229,7 @@ export default function Gallery() {
       <MediaModal
         item={selectedItem}
         open={Boolean(selectedItem)}
-        onClose={() => setSelectedItem(null)}
+        onClose={closeMedia}
         isFavorite={isFavorite}
         onToggleFavorite={toggleFavorite}
       />
@@ -228,7 +237,11 @@ export default function Gallery() {
         album={selectedAlbum}
         items={items}
         onClose={() => setSelectedAlbum(null)}
-        onOpenMedia={(item) => { setSelectedAlbum(null); setSelectedItem(item) }}
+        onOpenMedia={(item) => {
+          setReturnAlbum(selectedAlbum)
+          setSelectedAlbum(null)
+          setSelectedItem(item)
+        }}
         onRefresh={async () => {
           try { await loadMedia() } catch (loadError) {
             setError(loadError instanceof Error ? loadError.message : 'Не удалось обновить альбом')
